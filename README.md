@@ -22,7 +22,9 @@ The planned workflow is:
 - `kuketeams update`: regenerate and apply registered teams' blueprints and configs.
 - `--build`: build selected harness images locally before applying resources.
 
-Public harness images will also be built and published through GitHub Actions.
+Public harness assets and image build/release instructions are available in
+[harnesses/README.md](harnesses/README.md). Images publish through GitHub Actions
+on release tags after the catalog is pinned.
 The tool will manage blueprints and configs; cell startup and lifecycle remain
 under kukeon. The eventual goal is to replace `kuke team`.
 

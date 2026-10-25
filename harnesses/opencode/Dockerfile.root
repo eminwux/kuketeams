@@ -1,0 +1,16 @@
+ARG REGISTRY=ghcr.io/eminwux/kuketeams
+ARG TAG=latest
+FROM ${REGISTRY}/base-root:${TAG}
+
+ARG OPENCODE_VERSION=latest
+
+# npm-global install — runs as root, lands at /usr/bin/opencode (npm's
+# default prefix). Available on the standard PATH for both root and any
+# non-root user added by the consuming cell. Image state, not a
+# bind-mount, so it persists across cell restarts.
+RUN npm install -g opencode-ai@"${OPENCODE_VERSION}"
+
+# Opencode config is written per-role by the cell's onInit (blueprint
+# script) so the `instructions` array can point at the role's playbook.
+# OPENROUTER_MODEL / OPENROUTER_API_KEY are filled at run time from the
+# cell env via opencode's `{env:NAME}` resolution.

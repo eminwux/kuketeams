@@ -1,0 +1,71 @@
+{{- /*
+Named-template partials for this harness's blueprint.tmpl.yaml.
+
+The kukeon renderer (teamrender, eminwux/kukeon#1110) parses every sibling
+`*.tmpl.yaml` in this directory into the blueprint's template set, so the
+`{{ define }}` blocks below resolve the `{{ template "name" . }}` calls in
+blueprint.tmpl.yaml. The renderer only scans the blueprint's *own* directory
+for partials, so this file is duplicated per harness rather than shared from
+a single location.
+
+Each partial receives the bare selector string — the current `.needs.repos`
+or `.needs.mounts` entry, e.g. "ssh", "project", "agents" — as dot. Only the
+`upper`/`replace` funcs plus Go template builtins (`eq`, `if`, ...) are in
+scope; a partial CANNOT reach `.operator` (the renderer passes only the
+selector, not the root context). Operator-derived values a partial therefore
+cannot see — the SSH mount's host home — are composed in the blueprint via
+`$.operator.*`.
+
+See harnesses/README.md for the full mount/repo lookup contract.
+*/ -}}
+{{- /*
+repo_url — repos are STRUCTURAL SLOTS. Emitting an empty url makes the
+renderer treat the entry as a slot that BindConfig fills from operator facts:
+`project` <- the per-project clone URL (Inputs.ProjectRepoURL); `agents` <-
+the operator's `tc.spec.sources[<owner>/<repo>]` mapping (or the SSH default
+derived from the agents source). Never emit a literal URL here.
+*/ -}}
+{{- define "repo_url" -}}{{- end -}}
+{{- /*
+repo_target — the in-cell clone dir under /home/claude/, named after the
+selector (agents -> agents, etc.). The project repo's dir is per-project and
+known only at render time via .project.NAME (the team label), which a partial
+cannot reach (only the selector is in scope), so the project target is composed
+in the blueprint body from $.project.NAME — the same pattern as the SSH mount's
+host home. (.project.PROJECT_DIR is the host-absolute path and is used only as
+the project-bound guard, never composed into an in-cell path — issue #746.)
+See harnesses/README.md.
+*/ -}}
+{{- define "repo_target" -}}
+{{- . -}}
+{{- end -}}
+{{- /*
+mount_source — host path for a mount selector. `ssh` is home-relative and is
+composed in the blueprint from `$.operator.HOME_DIR` (a partial cannot reach
+`.operator`), so it returns empty here. The system mounts the orchestrator
+role declares carry fixed host paths.
+*/ -}}
+{{- define "mount_source" -}}
+{{- if eq . "kukeond-socket" -}}/run/kukeon/kukeond.sock
+{{- else if eq . "kuke-binary" -}}/usr/local/bin/kuke
+{{- else if eq . "kukeon-install" -}}/opt/kukeon
+{{- end -}}
+{{- end -}}
+{{- /*
+mount_target — the in-cell mount path.
+*/ -}}
+{{- define "mount_target" -}}
+{{- if eq . "ssh" -}}/home/claude/.ssh
+{{- else if eq . "kukeond-socket" -}}/run/kukeon/kukeond.sock
+{{- else if eq . "kuke-binary" -}}/usr/local/bin/kuke
+{{- else if eq . "kukeon-install" -}}/opt/kukeon
+{{- else -}}/home/claude/{{ . }}
+{{- end -}}
+{{- end -}}
+{{- /*
+mount_readonly — the kukeond socket must be writable (the orchestrator dials
+it); every other mount is read-only.
+*/ -}}
+{{- define "mount_readonly" -}}
+{{- if eq . "kukeond-socket" -}}false{{- else -}}true{{- end -}}
+{{- end -}}

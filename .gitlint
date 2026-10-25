@@ -1,0 +1,3 @@
+[general]
+# Repository policy requires single-line commit messages without a body.
+ignore = B6

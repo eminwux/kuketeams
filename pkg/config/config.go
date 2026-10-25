@@ -1,0 +1,103 @@
+// Copyright 2026 Emiliano Spinella (eminwux)
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// SPDX-License-Identifier: Apache-2.0
+
+// Package config defines and validates operator-owned TeamsConfig documents.
+// It performs no filesystem, environment, Git, daemon, or network discovery.
+package config
+
+const (
+	APIVersion = "kuketeams.io/v1"
+	Kind       = "TeamsConfig"
+)
+
+// TeamsConfig is the global configuration; it contains selections, not fetched definitions.
+type TeamsConfig struct {
+	APIVersion string `yaml:"apiVersion"`
+	Kind       string `yaml:"kind"`
+	Spec       Spec   `yaml:"spec"`
+}
+
+type Spec struct {
+	Git      *Git     `yaml:"git,omitempty"`
+	Defaults Defaults `yaml:"defaults"`
+}
+
+type Git struct {
+	Author         *Identity `yaml:"author,omitempty"`
+	Committer      *Identity `yaml:"committer,omitempty"`
+	SigningKey     string    `yaml:"signingKey,omitempty"`
+	Sign           []string  `yaml:"sign,omitempty"`
+	AllowedSigners string    `yaml:"allowedSigners,omitempty"`
+}
+
+type Identity struct {
+	Name  string `yaml:"name"`
+	Email string `yaml:"email"`
+}
+
+// Defaults preserves nil (omitted/inherit) versus non-nil empty (select none)
+// selection lists. Consumers must retain that distinction during inheritance.
+type Defaults struct {
+	Sources   []Source  `yaml:"sources,omitempty"`
+	Roles     []Role    `yaml:"roles,omitempty"`
+	Harnesses []Harness `yaml:"harnesses,omitempty"`
+}
+
+// MarshalYAML keeps explicit empty lists instead of erasing them with omitempty.
+func (d Defaults) MarshalYAML() (any, error) {
+	var out struct {
+		Sources   *[]Source  `yaml:"sources,omitempty"`
+		Roles     *[]Role    `yaml:"roles,omitempty"`
+		Harnesses *[]Harness `yaml:"harnesses,omitempty"`
+	}
+	if d.Sources != nil {
+		out.Sources = &d.Sources
+	}
+	if d.Roles != nil {
+		out.Roles = &d.Roles
+	}
+	if d.Harnesses != nil {
+		out.Harnesses = &d.Harnesses
+	}
+	return out, nil
+}
+
+type Source struct {
+	Name   string `yaml:"name"`
+	URL    string `yaml:"url"`
+	Branch string `yaml:"branch,omitempty"`
+	Tag    string `yaml:"tag,omitempty"`
+	Commit string `yaml:"commit,omitempty"`
+}
+
+type Role struct {
+	Name    string `yaml:"name"`
+	Source  string `yaml:"source"`
+	Path    string `yaml:"path"`
+	Needs   *Needs `yaml:"needs,omitempty"`
+	Harness string `yaml:"harness,omitempty"`
+}
+
+type Needs struct {
+	Image []string `yaml:"image,omitempty"`
+}
+
+type Harness struct {
+	Name    string `yaml:"name"`
+	Source  string `yaml:"source"`
+	Path    string `yaml:"path"`
+	Default bool   `yaml:"default,omitempty"`
+}

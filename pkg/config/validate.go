@@ -21,10 +21,21 @@ import (
 	"fmt"
 	"path"
 	"strings"
+	"unicode/utf8"
 )
 
 func blank(s string) bool { return strings.TrimSpace(s) == "" }
+func validUTF8(field, value string) error {
+	if !utf8.ValidString(value) {
+		return fmt.Errorf("%s: must be valid UTF-8", field)
+	}
+	return nil
+}
+
 func required(field, value string) error {
+	if err := validUTF8(field, value); err != nil {
+		return err
+	}
 	if blank(value) {
 		return fmt.Errorf("%s: must be nonblank", field)
 	}
@@ -52,6 +63,14 @@ func Validate(cfg *TeamsConfig) error {
 func validateGit(g *Git) error {
 	if g == nil {
 		return nil
+	}
+	for _, optional := range []struct{ field, value string }{
+		{"spec.git.signingKey", g.SigningKey},
+		{"spec.git.allowedSigners", g.AllowedSigners},
+	} {
+		if err := validUTF8(optional.field, optional.value); err != nil {
+			return err
+		}
 	}
 	for _, entry := range []struct {
 		name     string
@@ -170,10 +189,13 @@ func selection(field, source, definition string, sources map[string]bool) error 
 	if !sources[source] {
 		return fmt.Errorf("%s.source: unknown source %q", field, source)
 	}
+	if err := required(field+".path", definition); err != nil {
+		return err
+	}
 	// Paths use repository (slash) syntax regardless of the operator's OS.
 	// Reject backslashes and drive/URI prefixes to avoid platform-dependent escapes.
 	clean := path.Clean(definition)
-	if blank(definition) || path.IsAbs(definition) || clean == ".." || strings.HasPrefix(clean, "../") ||
+	if path.IsAbs(definition) || clean == ".." || strings.HasPrefix(clean, "../") ||
 		strings.ContainsAny(definition, "\\:\x00") {
 		return fmt.Errorf("%s.path: must be a nonempty repository-relative path within the source root", field)
 	}

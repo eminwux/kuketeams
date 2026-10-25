@@ -373,8 +373,137 @@ func (b brokenIO) Write([]byte) (int, error) { return 0, b.err }
 
 func TestIOFailures(t *testing.T) {
 	sentinel := errors.New("broken stream")
-	_, err := config.Decode(brokenIO{sentinel})
-	assertError(t, err, sentinel.Error())
-	err = config.Encode(brokenIO{sentinel}, fixture(t, "global"))
-	assertError(t, err, sentinel.Error())
+	const document = "apiVersion: kuketeams.io/v1\nkind: TeamsConfig\n...\n"
+	readers := []struct {
+		name   string
+		reader io.Reader
+	}{
+		{"immediate", brokenIO{sentinel}},
+		{"after document", io.MultiReader(strings.NewReader(document), brokenIO{sentinel})},
+		{"data and error", &dataErrorReader{strings.NewReader(document), sentinel}},
+	}
+	for _, tc := range readers {
+		t.Run("reader/"+tc.name, func(t *testing.T) {
+			_, err := config.Decode(tc.reader)
+			if !errors.Is(err, sentinel) {
+				t.Fatalf("original read error not preserved: %v", err)
+			}
+		})
+	}
+	for _, tc := range []struct {
+		name   string
+		writer io.Writer
+		want   error
+	}{
+		{"immediate", brokenIO{sentinel}, sentinel},
+		{"partial", partialWriter{sentinel}, sentinel},
+		{"short write", partialWriter{}, io.ErrShortWrite},
+	} {
+		t.Run("writer/"+tc.name, func(t *testing.T) {
+			err := config.Encode(tc.writer, fixture(t, "global"))
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("original write error not preserved: %v", err)
+			}
+		})
+	}
+}
+
+type dataErrorReader struct {
+	io.Reader
+
+	err error
+}
+
+func (r *dataErrorReader) Read(p []byte) (int, error) {
+	n, _ := r.Reader.Read(p)
+	return n, r.err
+}
+
+type partialWriter struct{ err error }
+
+func (w partialWriter) Write(p []byte) (int, error) { return len(p) / 2, w.err }
+
+func TestTaggedContainers(t *testing.T) {
+	const header = "apiVersion: kuketeams.io/v1\nkind: TeamsConfig\n"
+	for _, tc := range []struct{ name, body, want string }{
+		{"null mapping", "spec: !!null {}", "spec: expected mapping"},
+		{"null sequence", "spec: {defaults: {sources: !!null []}}", "spec.defaults.sources: expected list"},
+		{"null mapping alias", "spec: {git: {author: &id !!null {}, committer: *id}}", "spec.git.author: expected mapping"},
+		{"null sequence alias", "spec: {defaults: {sources: &list !!null [], roles: *list}}", "spec.defaults.sources: expected list"},
+		{"custom mapping", "spec: !custom {}", "spec: expected mapping"},
+		{"custom sequence", "spec: {defaults: {sources: !custom []}}", "spec.defaults.sources: expected list"},
+		{"explicit mapping", "spec: !!map {defaults: !!map {sources: !!seq []}}", ""},
+		{"valid sequence alias", "spec: {defaults: {sources: &list !!seq [], roles: *list, harnesses: *list}}", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, err := config.Decode(strings.NewReader(header + tc.body))
+			assertError(t, err, tc.want)
+		})
+	}
+}
+
+func TestInvalidUTF8(t *testing.T) {
+	invalid := string([]byte{0xff})
+	for _, tc := range []struct {
+		field  string
+		change func(*config.TeamsConfig)
+	}{
+		{"apiVersion", func(c *config.TeamsConfig) { c.APIVersion = invalid }},
+		{"kind", func(c *config.TeamsConfig) { c.Kind = invalid }},
+		{"spec.git.author.name", func(c *config.TeamsConfig) { c.Spec.Git.Author.Name = invalid }},
+		{"spec.git.author.email", func(c *config.TeamsConfig) { c.Spec.Git.Author.Email = invalid }},
+		{"spec.git.committer.name", func(c *config.TeamsConfig) { c.Spec.Git.Committer.Name = invalid }},
+		{"spec.git.committer.email", func(c *config.TeamsConfig) { c.Spec.Git.Committer.Email = invalid }},
+		{"spec.git.signingKey", func(c *config.TeamsConfig) { c.Spec.Git.Sign = nil; c.Spec.Git.SigningKey = invalid }},
+		{"spec.git.allowedSigners", func(c *config.TeamsConfig) { c.Spec.Git.AllowedSigners = invalid }},
+		{"spec.git.sign[0]", func(c *config.TeamsConfig) { c.Spec.Git.Sign[0] = invalid }},
+		{"spec.defaults.sources[0].name", func(c *config.TeamsConfig) { c.Spec.Defaults.Sources[0].Name = invalid }},
+		{"spec.defaults.sources[0].url", func(c *config.TeamsConfig) { c.Spec.Defaults.Sources[0].URL = invalid }},
+		{"spec.defaults.sources[0].branch", func(c *config.TeamsConfig) { c.Spec.Defaults.Sources[0].Branch = invalid }},
+		{"spec.defaults.sources[0].tag", func(c *config.TeamsConfig) {
+			c.Spec.Defaults.Sources[0].Branch = ""
+			c.Spec.Defaults.Sources[0].Tag = invalid
+		}},
+		{"spec.defaults.sources[0].commit", func(c *config.TeamsConfig) {
+			c.Spec.Defaults.Sources[0].Branch = ""
+			c.Spec.Defaults.Sources[0].Commit = invalid
+		}},
+		{"spec.defaults.roles[0].name", func(c *config.TeamsConfig) { c.Spec.Defaults.Roles[0].Name = invalid }},
+		{"spec.defaults.roles[0].source", func(c *config.TeamsConfig) { c.Spec.Defaults.Roles[0].Source = invalid }},
+		{"spec.defaults.roles[0].path", func(c *config.TeamsConfig) { c.Spec.Defaults.Roles[0].Path = invalid }},
+		{"spec.defaults.roles[0].harness", func(c *config.TeamsConfig) { c.Spec.Defaults.Roles[0].Harness = invalid }},
+		{"spec.defaults.roles[0].needs.image[0]", func(c *config.TeamsConfig) { c.Spec.Defaults.Roles[0].Needs.Image[0] = invalid }},
+		{"spec.defaults.harnesses[0].name", func(c *config.TeamsConfig) { c.Spec.Defaults.Harnesses[0].Name = invalid }},
+		{"spec.defaults.harnesses[0].source", func(c *config.TeamsConfig) { c.Spec.Defaults.Harnesses[0].Source = invalid }},
+		{"spec.defaults.harnesses[0].path", func(c *config.TeamsConfig) { c.Spec.Defaults.Harnesses[0].Path = invalid }},
+	} {
+		t.Run(tc.field, func(t *testing.T) {
+			cfg := fixture(t, "global")
+			tc.change(cfg)
+			assertError(t, config.Validate(cfg), tc.field+":")
+			var out bytes.Buffer
+			assertError(t, config.Encode(&out, cfg), tc.field+":")
+			if out.Len() != 0 {
+				t.Fatal("invalid UTF-8 model was written")
+			}
+		})
+	}
+}
+
+func TestUnicodeRoundTrip(t *testing.T) {
+	cfg := fixture(t, "global")
+	cfg.Spec.Git.Author.Name = "Zoë 🦊"
+	cfg.Spec.Git.SigningKey = "鍵.pub"
+	cfg.Spec.Git.AllowedSigners = "署名者"
+	var out bytes.Buffer
+	if err := config.Encode(&out, cfg); err != nil {
+		t.Fatal(err)
+	}
+	got, err := config.Decode(&out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cfg, got) {
+		t.Fatal("Unicode values changed during round trip")
+	}
 }

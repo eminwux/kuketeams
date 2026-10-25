@@ -28,9 +28,14 @@ import (
 
 // Decode accepts exactly one strict YAML document and returns a validated model.
 func Decode(r io.Reader) (*TeamsConfig, error) {
-	decoder := yaml.NewDecoder(r)
+	input := &errorReader{Reader: r}
+	decoder := yaml.NewDecoder(input)
 	var doc yaml.Node
-	if err := decoder.Decode(&doc); err != nil {
+	err := decoder.Decode(&doc)
+	if input.err != nil {
+		return nil, fmt.Errorf("config: read YAML: %w", input.err)
+	}
+	if err != nil {
 		if errors.Is(err, io.EOF) {
 			return nil, errors.New("config: empty YAML input")
 		}
@@ -47,7 +52,11 @@ func Decode(r io.Reader) (*TeamsConfig, error) {
 		return nil, fmt.Errorf("config: %w", err)
 	}
 	var extra yaml.Node
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
+	err = decoder.Decode(&extra)
+	if input.err != nil {
+		return nil, fmt.Errorf("config: read trailing YAML: %w", input.err)
+	}
+	if !errors.Is(err, io.EOF) {
 		if err != nil {
 			return nil, fmt.Errorf("config: trailing YAML: %w", err)
 		}
@@ -76,7 +85,7 @@ func checkNode(n *yaml.Node, typ reflect.Type, field string, active map[*yaml.No
 	// The schema uses only structs, slices, strings, and booleans.
 	switch typ.Kind() { //nolint:exhaustive // Other kinds cannot occur in this schema.
 	case reflect.Struct:
-		if n.Kind != yaml.MappingNode {
+		if n.Kind != yaml.MappingNode || n.Tag != "!!map" {
 			return fmt.Errorf("%s: expected mapping", location(field))
 		}
 		fields := map[string]reflect.Type{}
@@ -108,7 +117,7 @@ func checkNode(n *yaml.Node, typ reflect.Type, field string, active map[*yaml.No
 			}
 		}
 	case reflect.Slice:
-		if n.Kind != yaml.SequenceNode {
+		if n.Kind != yaml.SequenceNode || n.Tag != "!!seq" {
 			return fmt.Errorf("%s: expected list", location(field))
 		}
 		for i, child := range n.Content {
@@ -146,11 +155,52 @@ func Encode(w io.Writer, cfg *TeamsConfig) error {
 	if err := Validate(cfg); err != nil {
 		return err
 	}
-	encoder := yaml.NewEncoder(w)
+	output := &errorWriter{Writer: w}
+	encoder := yaml.NewEncoder(output)
 	const yamlIndent = 2
 	encoder.SetIndent(yamlIndent)
-	if err := encoder.Encode(cfg); err != nil {
+	err := encoder.Encode(cfg)
+	if err == nil {
+		err = encoder.Close()
+	}
+	if output.err != nil {
+		return fmt.Errorf("config: write YAML: %w", output.err)
+	}
+	if err != nil {
 		return fmt.Errorf("config: encode YAML: %w", err)
 	}
-	return encoder.Close()
+	return nil
+}
+
+// The YAML library stringifies stream errors. Capture their original values so
+// callers can still inspect them with errors.Is and errors.As.
+type errorReader struct {
+	io.Reader
+
+	err error
+}
+
+func (r *errorReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	if err != nil && !errors.Is(err, io.EOF) && r.err == nil {
+		r.err = err
+	}
+	return n, err
+}
+
+type errorWriter struct {
+	io.Writer
+
+	err error
+}
+
+func (w *errorWriter) Write(p []byte) (int, error) {
+	n, err := w.Writer.Write(p)
+	if n < len(p) && err == nil {
+		err = io.ErrShortWrite
+	}
+	if err != nil && w.err == nil {
+		w.err = err
+	}
+	return n, err
 }

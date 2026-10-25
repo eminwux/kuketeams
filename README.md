@@ -49,6 +49,79 @@ Help and version need no configuration, Git settings, or daemon. Unknown
 commands and flags fail with a diagnostic on stderr. The planned `apply` and
 `update` commands are not yet available.
 
+### Linux distribution builds and Actions artifacts
+
+Distribution builds require Linux amd64, Go, Git, Make, Bash, jq, GNU coreutils,
+and binutils (`readelf`). These tools are available on the Ubuntu CI runner.
+Run the same entrypoints locally:
+
+```sh
+make test
+version="dev-$(git rev-parse --short=12 HEAD)"
+make dist GOOS=linux GOARCH=amd64 VERSION="$version"
+make dist GOOS=linux GOARCH=arm64 VERSION="$version"
+```
+
+`make dist` uses `make kuketeams` with `-trimpath` and `CGO_ENABLED=0`, then
+generates and verifies the binary, relative SHA-256 manifest, and `build-info.json`
+under `bin/dist/linux-amd64/` or `bin/dist/linux-arm64/`. The JSON records the
+full checked-out commit SHA, OS, architecture, Go toolchain, and injected version.
+Omitting `VERSION` retains the local `dev` default. Both binaries have their ELF
+machine types and embedded Go build settings checked. On Linux amd64, help and
+version run with an empty environment and temporary home, which must remain empty.
+The arm64 output is cross-built and structurally checked; it is not runtime-tested.
+Tests run natively, with the race detector, before either CI build starts.
+
+The [Binary CI workflow](https://github.com/eminwux/kuketeams/actions/workflows/build.yaml)
+runs on PRs targeting `main`, pushes to `main`, and manual dispatch, with read-only
+repository permissions. Open a successful run and download its artifact for your
+architecture: `kuketeams-linux-amd64-` or `kuketeams-linux-arm64-` followed by the
+first 12 characters of the **built** commit SHA. Each artifact contains exactly
+the corresponding binary, its `.sha256` file, and `build-info.json`. Artifacts
+expire after **14 days**. CI downloads each uploaded artifact and repeats its
+checks, including native help/version, to validate the upload/download path.
+
+These are development Actions artifacts, not tagged GitHub Releases. PR artifacts
+may build GitHub's merge commit; `build-info.json` identifies the actual source,
+and the CLI reports `dev-` followed by that commit's first 12 characters. Binary
+CI does not publish harness/container images; image publication is a separate
+delivery step.
+
+For example, extract the Linux amd64 artifact into an empty directory, open a
+terminal there, and verify it before use:
+
+```sh
+sha256sum --check kuketeams-linux-amd64.sha256
+cat build-info.json
+chmod +x kuketeams-linux-amd64
+./kuketeams-linux-amd64 --help
+./kuketeams-linux-amd64 version
+```
+
+On a Linux arm64 machine, use its artifact instead:
+
+```sh
+sha256sum --check kuketeams-linux-arm64.sha256
+cat build-info.json
+chmod +x kuketeams-linux-arm64
+./kuketeams-linux-arm64 --help
+./kuketeams-linux-arm64 version
+```
+
+Extraction may lose executable permissions, so keep the `chmod` step. To install
+the verified binary for your own user (choose the command for your machine):
+
+```sh
+mkdir -p "$HOME/.local/bin"
+# Linux amd64:
+install -m 0755 kuketeams-linux-amd64 "$HOME/.local/bin/kuketeams"
+# Linux arm64:
+install -m 0755 kuketeams-linux-arm64 "$HOME/.local/bin/kuketeams"
+```
+
+Add `$HOME/.local/bin` to your shell's `PATH` if needed. Installation is optional;
+help/version create no operator configuration.
+
 ## Initialize operator configuration
 
 Run `kuketeams init` from any directory, with no project checkout or daemon:

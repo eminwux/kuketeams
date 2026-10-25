@@ -27,7 +27,7 @@ def check(plan):
             if line.startswith("FROM ${REGISTRY}/"):
                 reference = line.split()[1].replace("${REGISTRY}", registry).replace("${TAG}", tag)
                 base = reference.rsplit("/", 1)[1].split(":")[0]
-                assert target["contexts"] == {reference: "target:" + base}
+                assert target["contexts"] == {reference.removesuffix(":latest"): "target:" + base}
     print(f"ok: {len(targets)} images, both architectures, linked bases, no registry outputs")
 
 

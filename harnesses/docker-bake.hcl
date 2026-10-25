@@ -1,5 +1,6 @@
 // All builds use these static Dockerfiles. Linked contexts keep base results
 // inside BuildKit: validation never needs to pull or publish kuketeams bases.
+// BuildKit strips :latest when looking up named contexts; release tags remain.
 variable "REGISTRY" {
   default = "ghcr.io/eminwux/kuketeams"
 }
@@ -31,7 +32,7 @@ target "base-user" {
   inherits = ["_common"]
   context = "harnesses/base"
   dockerfile = "Dockerfile.user"
-  contexts = { "${REGISTRY}/base:${TAG}" = "target:base" }
+  contexts = { "${REGISTRY}/base${TAG == "latest" ? "" : ":${TAG}"}" = "target:base" }
   tags = ["${REGISTRY}/base-user:${TAG}"]
 }
 
@@ -39,18 +40,18 @@ target "base-root" {
   inherits = ["_common"]
   context = "harnesses/base"
   dockerfile = "Dockerfile.root"
-  contexts = { "${REGISTRY}/base:${TAG}" = "target:base" }
+  contexts = { "${REGISTRY}/base${TAG == "latest" ? "" : ":${TAG}"}" = "target:base" }
   tags = ["${REGISTRY}/base-root:${TAG}"]
 }
 
 target "_user" {
   inherits = ["_common"]
-  contexts = { "${REGISTRY}/base-user:${TAG}" = "target:base-user" }
+  contexts = { "${REGISTRY}/base-user${TAG == "latest" ? "" : ":${TAG}"}" = "target:base-user" }
 }
 
 target "_root" {
   inherits = ["_common"]
-  contexts = { "${REGISTRY}/base-root:${TAG}" = "target:base-root" }
+  contexts = { "${REGISTRY}/base-root${TAG == "latest" ? "" : ":${TAG}"}" = "target:base-root" }
 }
 
 target "claude" {

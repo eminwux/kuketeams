@@ -43,7 +43,8 @@ func TestCommands(t *testing.T) {
 		{"unknown flag", []string{"--unknown"}, "", "unknown flag"},
 		{"version unknown flag", []string{"version", "--unknown"}, "", "unknown flag"},
 		{"version argument", []string{"version", "extra"}, "", "unknown command"},
-		{"no placeholder init", []string{"init"}, "", "unknown command"},
+		{"init help", []string{"init", "--help"}, "configuration only", ""},
+		{"init build unsupported", []string{"init", "--build"}, "", "unknown flag"},
 		{"no placeholder apply", []string{"apply"}, "", "unknown command"},
 		{"no placeholder update", []string{"update"}, "", "unknown command"},
 	} {

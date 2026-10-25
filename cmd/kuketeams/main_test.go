@@ -46,6 +46,9 @@ func TestExecutable(t *testing.T) {
 			}{
 				{[]string{"--help"}, "Usage:", false},
 				{[]string{"help"}, "Usage:", false},
+				{[]string{"init", "--help"}, "configuration only", false},
+				{[]string{"help", "init"}, "configuration only", false},
+				{[]string{"init", "--build"}, "unknown flag", true},
 				{[]string{"version"}, "kuketeams " + version + "\n", false},
 				{[]string{"unknown"}, "unknown command", true},
 				{[]string{"--unknown"}, "unknown flag", true},
@@ -80,5 +83,58 @@ func checkCommand(t *testing.T, binary, home string, args []string, want string,
 		}
 	} else if err != nil || !strings.Contains(stdout.String(), want) || stderr.Len() != 0 {
 		t.Fatalf("%v: error=%v stdout=%q stderr=%q", args, err, stdout.String(), stderr.String())
+	}
+}
+
+func TestInitExecutable(t *testing.T) {
+	binary := filepath.Join(t.TempDir(), "kuketeams")
+	build := exec.CommandContext(t.Context(), "go", "build", "-o", binary, ".")
+	if output, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, output)
+	}
+	home := t.TempDir()
+	// Run outside HOME and outside a project checkout; PATH isolates missing Git.
+	cwd := t.TempDir()
+	for _, status := range []string{"Created configuration", "Existing valid configuration", "invalid"} {
+		if status == "invalid" {
+			if err := os.WriteFile(filepath.Join(home, ".kuke", "kuketeams.yaml"), []byte("kind: Wrong\n"), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		command := exec.CommandContext(t.Context(), binary, "init")
+		command.Dir = cwd
+		command.Env = []string{"HOME=" + home, "USERPROFILE=" + home, "PATH=" + home}
+		var stdout, stderr bytes.Buffer
+		command.Stdout, command.Stderr = &stdout, &stderr
+		err := command.Run()
+		path := filepath.Join(home, ".kuke", "kuketeams.yaml")
+		if status == "invalid" {
+			if err == nil || !strings.Contains(stderr.String(), path) || stdout.Len() != 0 {
+				t.Fatalf("error=%v stdout=%q stderr=%q", err, &stdout, &stderr)
+			}
+			continue
+		}
+		if err != nil || !strings.Contains(stdout.String(), status+": "+path) ||
+			!strings.Contains(stdout.String(), "no team has been created or registered") {
+			t.Fatalf("error=%v stdout=%q stderr=%q", err, &stdout, &stderr)
+		}
+		if status == "Created configuration" && !strings.Contains(stderr.String(), "Git discovery skipped") {
+			t.Fatalf("missing discovery diagnostic: %q", &stderr)
+		}
+		if status == "Existing valid configuration" && stderr.Len() != 0 {
+			t.Fatalf("rerun diagnostics = %q", &stderr)
+		}
+	}
+	entries, err := os.ReadDir(cwd)
+	if err != nil || len(entries) != 0 {
+		t.Fatalf("working directory changed: %v, %v", entries, err)
+	}
+	entries, err = os.ReadDir(home)
+	if err != nil || len(entries) != 1 || entries[0].Name() != ".kuke" {
+		t.Fatalf("unexpected home artifacts: %v, %v", entries, err)
+	}
+	entries, err = os.ReadDir(filepath.Join(home, ".kuke"))
+	if err != nil || len(entries) != 1 || entries[0].Name() != "kuketeams.yaml" {
+		t.Fatalf("unexpected config artifacts: %v, %v", entries, err)
 	}
 }

@@ -5,7 +5,7 @@ A planned standalone CLI and library for composing agent teams into
 
 This repository will own the basic operator role, public harnesses, rendering
 templates, and harness image definitions. Specialized roles and skills can come
-from external repositories such as [agents](https://github.com/eminwux/agents).
+from external repositories.
 
 ## Status
 
@@ -30,7 +30,7 @@ under kukeon. The eventual goal is to replace `kuke team`.
 The checked-in [kuketeam.yaml](kuketeam.yaml) uses the existing `ProjectTeam`
 format consumed by `kuke team init`. It follows kukeon's development roster,
 with this repository's team name, and selects the dev, pm, and pr-reviewer roles
-from the agents repository with Claude, OpenCode, and Codex harnesses.
+with Claude, OpenCode, and Codex harnesses.
 
 With kukeon installed and initialized, run from this repository:
 

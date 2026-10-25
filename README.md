@@ -9,8 +9,8 @@ from external repositories.
 
 ## Status
 
-The configuration library and CLI help/version are available. Configuration
-bootstrapping and team composition remain planned; the delivery steps are tracked
+The configuration library, CLI help/version, and configuration-only `init` are
+available. Team composition remains planned; the delivery steps are tracked
 in [the implementation epic](https://github.com/eminwux/kuketeams/issues/1).
 
 The planned workflow is:
@@ -46,8 +46,41 @@ go build -ldflags '-X main.version=v0.1.0' -o bin/kuketeams ./cmd/kuketeams
 ```
 
 Help and version need no configuration, Git settings, or daemon. Unknown
-commands and flags fail with a diagnostic on stderr. The planned `init`, `apply`,
-and `update` commands are not yet available.
+commands and flags fail with a diagnostic on stderr. The planned `apply` and
+`update` commands are not yet available.
+
+## Initialize operator configuration
+
+Run `kuketeams init` from any directory, with no project checkout or daemon:
+
+```sh
+./bin/kuketeams init
+```
+
+This creates `~/.kuke/kuketeams.yaml` with the kuketeams source on `main`, the
+`operator` role (requesting the `go` image), and the default `codex` harness. Edit
+this file to customize configuration. This delivery initializes configuration
+only: it does not fetch assets, compose or register a team, generate manifests,
+or build images. `init --build` is rejected until build support is implemented.
+
+Available **global** Git settings seed separate author/committer identities, the
+signing key, commit/tag signing selections, and allowed signers. Missing values
+are optional; incomplete identities and signing enabled without a key are omitted
+with diagnostics. If Git is unavailable, initialization proceeds with defaults and
+a diagnostic. Malformed Git settings and invalid signing booleans fail without
+publishing configuration. Key and allowed-signers paths are preserved as configured;
+bootstrap does not read keys, check their existence, or sign anything.
+
+Reruns validate and preserve existing configuration byte-for-byte, including
+comments, independent identities, and permissions, without rediscovering Git.
+Invalid YAML, wrong kind/version, and filesystem failures produce path-qualified
+errors and a nonzero exit. Newly created directories use `0700` and the file uses
+`0600`. Existing directory permissions are preserved. Publication hard-links a
+completed temporary file in the same directory to the final name, atomically
+refusing to overwrite a competing creator; the winner is then read and validated.
+This requires a local filesystem supporting hard links; unsupported publication
+fails safely and removes temporary files. No configuration-path flag or environment
+override is provided.
 
 ## Configuration library
 

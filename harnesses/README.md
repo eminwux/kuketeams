@@ -13,8 +13,11 @@ The packaging adaptations are the kuketeams image namespace, versioned base
 references, a shared Buildx Bake graph/entrypoint, release checks, and the tag
 publication workflow. Hook tests compare against recorded outputs from the six
 upstream Claude role hooks; those fixtures avoid copying specialized roles.
-The Dockerfiles otherwise retain their packages, users, CLI versions, policy,
-and startup behavior. `/opt/agents/codex/hooks` is an image-internal policy path
+The review-required home adaptation uses account `user` in non-root images
+and the root identity in root images, both with `/home/user` as HOME, passwd
+home, and WORKDIR. CLI paths, Android ownership, templates, and SSH/state
+mounts follow that shared path; root privilege and nested-runtime settings
+remain capability-gated. Packages, CLI versions, and managed policy are retained. `/opt/agents/codex/hooks` is an image-internal policy path
 and stays unchanged.
 
 | Images                      | Parent                   | Purpose                                |
@@ -54,6 +57,7 @@ make test-harnesses              # references, rendered templates, hooks, build 
 make -C harnesses plan           # resolved build graph without building
 make -C harnesses images         # native images loaded into local Docker
 make -C harnesses images IMAGES="codex codex-root"
+make -C harnesses smoke          # after building all native images
 make -C harnesses images MODE=check PLATFORMS=linux/amd64,linux/arm64
 ```
 
@@ -71,6 +75,12 @@ round trips or publishing intermediates for PR validation. See the
 `.tmpl.yaml` files contain Go templates, so generic YAML/Prettier hooks exclude
 only those files. Go tests parse every sibling partial and render project and
 singleton fixtures for user/root envelopes before checking the resulting YAML.
+
+The native smoke target checks the user/root bases and all seven harness
+variants: effective UID/account, HOME and passwd home, working directory,
+writable agent state, a read-only SSH fixture (including root `-F` handling),
+and CLI version/help startup without credentials or network access. The common
+`base` image remains a neutral Debian development layer.
 
 ## Release tags and publication
 

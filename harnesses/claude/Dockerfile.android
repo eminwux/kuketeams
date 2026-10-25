@@ -5,7 +5,7 @@ FROM ${REGISTRY}/base-user:${TAG}
 ARG CLAUDE_CODE_VERSION=latest
 
 # JDK 17 and Android SDK tooling require root; base-user ends with
-# USER claude so we switch back up for the system install.
+# USER user so we switch back up for the system install.
 USER root
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -35,13 +35,13 @@ RUN mkdir -p ${ANDROID_HOME}/cmdline-tools \
         "platforms;android-35" \
         "build-tools;35.0.0" \
         "platform-tools" \
- && chown -R claude:claude ${ANDROID_HOME}
+ && chown -R user:user ${ANDROID_HOME}
 
-USER claude
+USER user
 
 # Claude Code — same RUN block as harnesses/claude/Dockerfile.
-ENV PATH=/home/claude/.local/bin:$PATH
+ENV PATH=/home/user/.local/bin:$PATH
 
 RUN curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLAUDE_CODE_VERSION}" \
- && echo 'export PATH=$HOME/.local/bin:$PATH' >> /home/claude/.bashrc \
+ && echo 'export PATH=$HOME/.local/bin:$PATH' >> /home/user/.bashrc \
  && rm -f $HOME/.claude.json

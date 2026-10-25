@@ -1,4 +1,4 @@
-> Historical template contract copied from [agents at a5dbb59c3942621c5d52ba321b1d81e5987a5f3a](https://github.com/eminwux/agents/tree/a5dbb59c3942621c5d52ba321b1d81e5987a5f3a). Runtime role materialization still uses the external agents checkout. Standalone composition is a later step.
+> Historical template contract copied from [agents at a5dbb59c3942621c5d52ba321b1d81e5987a5f3a](https://github.com/eminwux/agents/tree/a5dbb59c3942621c5d52ba321b1d81e5987a5f3a). The copied contract is adapted below for the shared `/home/user` layout. Runtime role materialization still uses the external agents checkout. Standalone composition is a later step.
 
 # Harness blueprint templates
 
@@ -36,7 +36,7 @@ compute (the SSH mount's host home) are composed in the blueprint body via
 | Partial          | Dot        | Returns                                                                    |
 | ---------------- | ---------- | -------------------------------------------------------------------------- |
 | `repo_url`       | repo name  | Always empty — see "Repo lookup" below.                                    |
-| `repo_target`    | repo name  | In-cell clone dir under `/home/claude/`.                                   |
+| `repo_target`    | repo name  | In-cell clone dir under `/home/user/`.                                     |
 | `mount_source`   | mount name | Host source path (system mounts only; `ssh` is composed in the blueprint). |
 | `mount_target`   | mount name | In-cell mount path.                                                        |
 | `mount_readonly` | mount name | `true`/`false`.                                                            |
@@ -52,17 +52,17 @@ its `BindConfig` step fills from operator facts (eminwux/kukeon#1115):
 | `project` | `Inputs.ProjectRepoURL` (the per-project clone URL `kuke team init` reads from the project's `origin`).                      |
 | `agents`  | `tc.spec.sources["<owner>/<repo>"]`, or the SSH default derived from the materialized agents source when no override is set. |
 
-`repo_target` maps every non-project repo to `/home/claude/<name>` (e.g.
-`agents` → `/home/claude/agents`). The `project` repo's in-cell dir is
+`repo_target` maps every non-project repo to `/home/user/<name>` (e.g.
+`agents` → `/home/user/agents`). The `project` repo's in-cell dir is
 per-project and known only at render time, and a partial cannot reach it (it
 sees only the selector) — so the blueprint **body** composes the project target
-from `.project.NAME` (the team label, e.g. `dezot` → `/home/claude/dezot`),
+from `.project.NAME` (the team label, e.g. `dezot` → `/home/user/dezot`),
 baking the dir at render time, the same way the SSH mount's host home is
 composed from `$.operator.HOME_DIR`. `NAME` — not `.project.PROJECT_DIR` — is
 the basename source: `PROJECT_DIR` is the **host-absolute** project path
 (`os.Getwd()` at `kuke team init`, e.g. `/home/inwx/projects/dezot`), so
 `{{ $home }}/{{ .project.PROJECT_DIR }}` would join into the double-slashed
-`/home/claude//home/inwx/projects/dezot` (issue #746). `PROJECT_DIR` is kept
+`/home/user//home/inwx/projects/dezot` (issue #746). `PROJECT_DIR` is kept
 only as the project-bound guard (`{{- if .project.PROJECT_DIR }}`), never
 composed into an in-cell path. Baking is correct because both the project dir
 and the team label are fixed per team at `kuke team init` time; it also keeps
@@ -128,7 +128,7 @@ carry fixed host paths.
 
 | Mount            | Host source                                   | In-cell target             | Read-only       |
 | ---------------- | --------------------------------------------- | -------------------------- | --------------- |
-| `ssh`            | `<HOME_DIR>/.ssh` (via `$.operator.HOME_DIR`) | `/home/claude/.ssh`        | yes             |
+| `ssh`            | `<HOME_DIR>/.ssh` (via `$.operator.HOME_DIR`) | `/home/user/.ssh`          | yes             |
 | `kuke-binary`    | `/usr/local/bin/kuke`                         | `/usr/local/bin/kuke`      | yes             |
 | `kukeond-socket` | `/run/kukeon/kukeond.sock`                    | `/run/kukeon/kukeond.sock` | **no** (dialed) |
 | `kukeon-install` | `/opt/kukeon`                                 | `/opt/kukeon`              | yes             |
@@ -178,7 +178,7 @@ init`). Wiring this pre-provision into team init is tracked as a follow-up.
 
 ### SSH configuration in root cells
 
-Root blueprints set `GIT_SSH_COMMAND` to explicitly load `/root/.ssh/config`
+Root blueprints set `GIT_SSH_COMMAND` to explicitly load `/home/user/.ssh/config`
 with `ssh -F` when that file exists, falling back to `-F /dev/null` otherwise.
 Git evaluates the selection inside the cell, including for required repository
 clones before the interactive terminal starts. This lets root use the read-only

@@ -18,14 +18,13 @@ metadata:
   $isRoot / $home — root-aware rendering, identical mechanism to
   harnesses/claude/blueprint.tmpl.yaml: when the merged needs.image carries the
   `root` capability the renderer selected the codex-root image (uid 0,
-  $HOME=/root), so every in-cell path follows $home and the root-only knobs
+  $HOME=/home/user), so every in-cell path follows $home and the root-only knobs
   (privileged, nestedCgroupRuntime, tmpfs, /opt/cni, codex sandbox override)
   render. teamrender exposes only upper/replace, so membership is a range+eq scan.
 */ -}}
 {{- $isRoot := false }}
 {{- range .needs.image }}{{- if eq . "root" }}{{- $isRoot = true }}{{- end }}{{- end }}
-{{- $home := "/home/claude" }}
-{{- if $isRoot }}{{- $home = "/root" }}{{- end }}
+{{- $home := "/home/user" }}
 spec:
   prefix: {{ .role.name }}-codex
   parameters:

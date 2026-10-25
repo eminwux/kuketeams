@@ -4,10 +4,10 @@ FROM ${REGISTRY}/base-root:${TAG}
 
 ARG OPENCODE_VERSION=latest
 
-# npm-global install — runs as root, lands at /usr/bin/opencode (npm's
-# default prefix). Available on the standard PATH for both root and any
-# non-root user added by the consuming cell. Image state, not a
-# bind-mount, so it persists across cell restarts.
+# Root keeps UID 0 while installing the CLI under the shared home layout.
+ENV NPM_CONFIG_PREFIX=/home/user/.local
+ENV PATH=/home/user/.local/bin:$PATH
+
 RUN npm install -g opencode-ai@"${OPENCODE_VERSION}"
 
 # Opencode config is written per-role by the cell's onInit (blueprint

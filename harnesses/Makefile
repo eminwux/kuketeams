@@ -14,3 +14,7 @@ plan:
 
 check:
 	$(MAKE) -C .. test-harnesses
+
+.PHONY: smoke
+smoke:
+	REGISTRY="$(REGISTRY)" TAG="$(TAG)" python3 tests/smoke_images.py

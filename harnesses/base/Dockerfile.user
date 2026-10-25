@@ -11,11 +11,12 @@ RUN apt-get update \
  && apt-get install -y --no-install-recommends gettext-base \
  && rm -rf /var/lib/apt/lists/*
 
-# Non-root cells run as the unprivileged `claude` user, in the `kukeon` group
+# Non-root cells run as the unprivileged `user` account, in the `kukeon` group
 # so the bind-mounted /run/kukeon/kukeond.sock is dial-able without sudo.
-RUN useradd --create-home --shell /bin/bash claude \
+RUN useradd --create-home --home-dir /home/user --shell /bin/bash user \
  && groupadd -g 988 kukeon \
- && usermod -aG kukeon claude
+ && usermod -aG kukeon user
 
-USER claude
-WORKDIR /home/claude
+ENV HOME=/home/user
+USER user
+WORKDIR /home/user

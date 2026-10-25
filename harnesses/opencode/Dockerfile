@@ -9,11 +9,11 @@ ARG OPENCODE_VERSION=latest
 # claude user (the default /usr/lib/node_modules prefix would need root).
 # ~/.local is image state (not a bind-mount), so it persists across cell
 # restarts without a re-download on first run.
-ENV NPM_CONFIG_PREFIX=/home/claude/.local
-ENV PATH=/home/claude/.local/bin:$PATH
+ENV NPM_CONFIG_PREFIX=/home/user/.local
+ENV PATH=/home/user/.local/bin:$PATH
 
 RUN npm install -g opencode-ai@"${OPENCODE_VERSION}" \
- && echo 'export PATH=$HOME/.local/bin:$PATH' >> /home/claude/.bashrc
+ && echo 'export PATH=$HOME/.local/bin:$PATH' >> /home/user/.bashrc
 
 # Opencode config is written per-role by the cell's onInit (blueprint
 # script) so the `instructions` array can point at the role's playbook.

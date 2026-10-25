@@ -13,8 +13,8 @@ COPY hooks/reflect-stop.py /opt/agents/codex/hooks/reflect-stop.py
 # claude user (the default /usr/lib/node_modules prefix would need root).
 # ~/.local is image state (not a bind-mount), so it persists across cell
 # restarts without a re-download on first run.
-ENV NPM_CONFIG_PREFIX=/home/claude/.local
-ENV PATH=/home/claude/.local/bin:$PATH
+ENV NPM_CONFIG_PREFIX=/home/user/.local
+ENV PATH=/home/user/.local/bin:$PATH
 
 RUN npm install -g @openai/codex@"${CODEX_VERSION}" \
- && echo 'export PATH=$HOME/.local/bin:$PATH' >> /home/claude/.bashrc
+ && echo 'export PATH=$HOME/.local/bin:$PATH' >> /home/user/.bashrc

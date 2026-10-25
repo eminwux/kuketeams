@@ -1,11 +1,11 @@
 # Opencode-harness cell template, parameterized by the role (.role.name) and by the matching
 # Role's spec.needs (skills, repos, mounts, params) and harnesses.opencode.{permissions, secrets}.
 #
-# Opencode CLI surface (cwd = the in-cell project dir /home/claude/<NAME> for both paths):
+# Opencode CLI surface (cwd = the in-cell project dir /home/user/<NAME> for both paths):
 #   non-interactive: opencode run "PROMPT" --model $OPENROUTER_MODEL ./
 #   interactive:     opencode               --model $OPENROUTER_MODEL ./
 #
-# Opencode reads /home/claude/.opencode-config (baked into the image;
+# Opencode reads /home/user/.opencode-config (baked into the image;
 # OPENCODE_CONFIG env points at it). That file references {env:OPENROUTER_API_KEY}
 # and {env:OPENROUTER_MODEL}, both supplied from the cell env.
 #
@@ -22,15 +22,14 @@ metadata:
   $isRoot / $home — root-aware rendering, identical mechanism to
   harnesses/claude/blueprint.tmpl.yaml: when the merged needs.image carries the
   `root` capability the renderer selected the opencode-root image (uid 0,
-  $HOME=/root), so every in-cell path follows $home and the root-only knobs
+  $HOME=/home/user), so every in-cell path follows $home and the root-only knobs
   (privileged, nestedCgroupRuntime, tmpfs, /opt/cni) render. teamrender exposes
   only upper/replace, so membership is a range+eq scan. opencode's invocation is
   unchanged under root (it already skips permissions); only paths differ.
 */ -}}
 {{- $isRoot := false }}
 {{- range .needs.image }}{{- if eq . "root" }}{{- $isRoot = true }}{{- end }}{{- end }}
-{{- $home := "/home/claude" }}
-{{- if $isRoot }}{{- $home = "/root" }}{{- end }}
+{{- $home := "/home/user" }}
 spec:
   prefix: {{ .role.name }}-opencode
   parameters:

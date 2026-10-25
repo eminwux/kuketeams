@@ -5,7 +5,7 @@ FROM ${REGISTRY}/base:${TAG}
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Extra packages the root variants need: iptables for in-cell firewalling,
-# sudo for selective drop-to-claude operations, and the Docker apt stack so
+# sudo for selective drop-to-user operations, and the Docker apt stack so
 # docker-in-cell flows (build/run) work against a bind-mounted socket or a
 # nested daemon.
 RUN apt-get update \
@@ -28,9 +28,11 @@ RUN apt-get update \
         docker-compose-plugin \
  && rm -rf /var/lib/apt/lists/*
 
-# A `claude` user still exists in root cells so files dropped to /home/claude
+# A `user` account still exists in root cells so files dropped to /home/user
 # can carry sensible ownership when a leaf drops privilege.
-RUN useradd --create-home --shell /bin/bash claude
+RUN useradd --create-home --home-dir /home/user --shell /bin/bash user \
+ && usermod --home /home/user root
 
+ENV HOME=/home/user
 USER root
-WORKDIR /home/claude
+WORKDIR /home/user

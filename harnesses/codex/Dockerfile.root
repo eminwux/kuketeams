@@ -7,8 +7,8 @@ ARG CODEX_VERSION=0.163.0
 COPY requirements.toml /etc/codex/requirements.toml
 COPY hooks/reflect-stop.py /opt/agents/codex/hooks/reflect-stop.py
 
-# npm-global install — runs as root, lands at /usr/bin/codex (npm's default
-# prefix). Available on the standard PATH for both root and any non-root user
-# added by the consuming cell. Image state, not a bind-mount, so it persists
-# across cell restarts.
+# Root keeps UID 0 while installing the CLI under the shared home layout.
+ENV NPM_CONFIG_PREFIX=/home/user/.local
+ENV PATH=/home/user/.local/bin:$PATH
+
 RUN npm install -g @openai/codex@"${CODEX_VERSION}"

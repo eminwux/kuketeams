@@ -46,17 +46,16 @@ metadata:
 {{- /*
   $isRoot is true when the merged needs.image (role ⊕ per-project ProjectTeam)
   carries the `root` capability — i.e. the renderer selected the `claude-root`
-  image, which runs as uid 0 with $HOME=/root and the claude binary at
-  /root/.local/bin/claude. teamrender exposes only `upper`/`replace` (no `has`),
+  image, which runs as uid 0 with $HOME=/home/user and the claude binary at
+  /home/user/.local/bin/claude. teamrender exposes only `upper`/`replace` (no `has`),
   so membership is scanned with range+eq; `$isRoot = true` (assignment, not :=)
   propagates out of the range scope. $home then drives every in-cell path so the
-  one template renders both the claude-user envelope (/home/claude) and the root
-  envelope (/root) without forking the file. See harnesses/README.md.
+  one template uses /home/user in both modes while root capabilities control
+  privilege and nested-runtime settings. See harnesses/README.md.
 */ -}}
 {{- $isRoot := false }}
 {{- range .needs.image }}{{- if eq . "root" }}{{- $isRoot = true }}{{- end }}{{- end }}
-{{- $home := "/home/claude" }}
-{{- if $isRoot }}{{- $home = "/root" }}{{- end }}
+{{- $home := "/home/user" }}
 spec:
   prefix: {{ .role.name }}-claude
   parameters:

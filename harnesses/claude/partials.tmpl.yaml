@@ -27,7 +27,7 @@ derived from the agents source). Never emit a literal URL here.
 */ -}}
 {{- define "repo_url" -}}{{- end -}}
 {{- /*
-repo_target — the in-cell clone dir under /home/claude/, named after the
+repo_target — the in-cell clone dir under /home/user/, named after the
 selector (agents -> agents, etc.). The project repo's dir is per-project and
 known only at render time via .project.NAME (the team label), which a partial
 cannot reach (only the selector is in scope), so the project target is composed
@@ -55,11 +55,11 @@ role declares carry fixed host paths.
 mount_target — the in-cell mount path.
 */ -}}
 {{- define "mount_target" -}}
-{{- if eq . "ssh" -}}/home/claude/.ssh
+{{- if eq . "ssh" -}}/home/user/.ssh
 {{- else if eq . "kukeond-socket" -}}/run/kukeon/kukeond.sock
 {{- else if eq . "kuke-binary" -}}/usr/local/bin/kuke
 {{- else if eq . "kukeon-install" -}}/opt/kukeon
-{{- else -}}/home/claude/{{ . }}
+{{- else -}}/home/user/{{ . }}
 {{- end -}}
 {{- end -}}
 {{- /*

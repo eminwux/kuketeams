@@ -142,10 +142,9 @@ func TestTemplatesWithSiblingPartials(t *testing.T) {
 			for _, rootUser := range []bool{false, true} {
 				for _, projectBound := range []bool{false, true} {
 					imageNeeds := []string{harness, "git"}
-					home := "/home/claude"
+					home := "/home/user"
 					if rootUser {
 						imageNeeds = append(imageNeeds, "root")
-						home = "/root"
 					}
 					projectDir := ""
 					if projectBound {
@@ -227,13 +226,22 @@ func checkTemplateOutput(t *testing.T, out *bytes.Buffer, home string, rootUser 
 	if blueprint["kind"] != "CellBlueprint" {
 		t.Fatal("wrong rendered kind")
 	}
-	for _, value := range []string{"workingDir: " + home, "target: " + home + "/.ssh", "source: /host/home/.ssh", "envName: TEST_TOKEN"} {
+	for _, value := range []string{"workingDir: " + home, "target: " + home + "/.ssh", "source: /host/home/.ssh", "envName: TEST_TOKEN", "signingKey:     /home/user/.ssh/id_ed25519.pub", "target: /home/user/agents"} {
 		if !strings.Contains(out.String(), value) {
 			t.Fatalf("missing %q", value)
 		}
 	}
 	if strings.Contains(out.String(), "<no value>") || strings.Contains(out.String(), "{{") {
 		t.Fatal("unresolved template")
+	}
+	if strings.Contains(out.String(), "/root") || strings.Contains(out.String(), "/home/claude") {
+		t.Fatal("legacy home path in rendered blueprint")
+	}
+	if strings.Contains(out.String(), "nestedCgroupRuntime: true") != rootUser {
+		t.Fatal("nested runtime capability changed")
+	}
+	if strings.Contains(out.String(), `ssh -F "$(if [ -f /home/user/.ssh/config ]`) != rootUser {
+		t.Fatal("root SSH config handling changed")
 	}
 	if strings.Contains(out.String(), "privileged: true") != rootUser {
 		t.Fatal("root privilege changed")

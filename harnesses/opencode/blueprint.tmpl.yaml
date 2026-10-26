@@ -76,8 +76,8 @@ spec:
           {{- end }}
           - OPENCODE_CONFIG={{ $home }}/.opencode-config
           - OPENROUTER_MODEL=${OPENROUTER_MODEL}
-          - AGENT_DEF_DIR={{ $home }}/agents/${ROLE}
-          - SHARED_AGENT_DIR={{ $home }}/agents/common
+          - AGENT_DEF_DIR={{ .role.sourceDir }}/{{ .role.path }}
+          - SHARED_AGENT_DIR={{ .role.sourceDir }}/common
           {{- if $isRoot }}
           # IS_SANDBOX is claude's uid-0 guard; carried uniformly across root
           # harness cells (inert for opencode, kept for parity with claude-root).
@@ -137,30 +137,17 @@ spec:
           prompt: "opencode> "
           onInit:
             - script: |
-                make -C {{ $home }}/agents opencode-openrouter ROLE=${ROLE}
-                cat > "$OPENCODE_CONFIG" <<'JSON'
-                {
-                  "$schema": "https://opencode.ai/config.json",
-                  "model": "{env:OPENROUTER_MODEL}",
-                  "provider": {
-                    "openrouter": {
-                      "models": {},
-                      "options": { "apiKey": "{env:OPENROUTER_API_KEY}" }
-                    }
-                  },
-                  "instructions": [
-                    "{{ $home }}/agents/${ROLE}/CLAUDE.md"
-                  ]
-                }
-                JSON
+                make -C {{ .role.sourceDir }} {{ .makeTarget }} ROLE={{ .role.path }}
             - script: |
                 {{- if .project.PROJECT_DIR }}
-                cd {{ $home }}/{{ .project.NAME }}
+                cd {{ .project.CLONE_DIR }}
                 git checkout main
                 git pull
+                {{- else }}
+                cd {{ .role.sourceDir }}/{{ .role.path }}
                 {{- end }}
                 if [ -n "$PROMPT" ]; then
-                  opencode run "$PROMPT" --dangerously-skip-permissions --model "$OPENROUTER_MODEL" -f ./
+                  opencode run "$PROMPT" {{ if eq .harnesses.opencode.permissions "skip" }}--dangerously-skip-permissions {{ end }}--model "$OPENROUTER_MODEL" -f ./
                 else
                   opencode --model "$OPENROUTER_MODEL" ./
                 fi

@@ -64,6 +64,14 @@ func TestFirstRun(t *testing.T) {
 	want := &config.TeamsConfig{
 		APIVersion: "kuketeams.io/v1", Kind: "TeamsConfig",
 		Spec: config.Spec{
+			Repositories: []config.Repository{
+				{
+					Name:   "kuketeams",
+					URL:    "https://github.com/eminwux/kuketeams.git",
+					Target: "/home/user/kuketeams",
+					Branch: "main",
+				},
+			},
 			Git: &config.Git{
 				Author:     &config.Identity{Name: "Operator", Email: "operator@example.test"},
 				Committer:  &config.Identity{Name: "Operator", Email: "operator@example.test"},

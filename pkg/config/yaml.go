@@ -28,44 +28,51 @@ import (
 
 // Decode accepts exactly one strict YAML document and returns a validated model.
 func Decode(r io.Reader) (*TeamsConfig, error) {
-	input := &errorReader{Reader: r}
-	decoder := yaml.NewDecoder(input)
-	var doc yaml.Node
-	err := decoder.Decode(&doc)
-	if input.err != nil {
-		return nil, fmt.Errorf("config: read YAML: %w", input.err)
-	}
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil, errors.New("config: empty YAML input")
-		}
-		return nil, fmt.Errorf("config: invalid YAML: %w", err)
-	}
-	if len(doc.Content) != 1 {
-		return nil, errors.New("config: empty YAML document")
-	}
-	if err := checkNode(doc.Content[0], reflect.TypeOf(TeamsConfig{}), "", map[*yaml.Node]bool{}); err != nil {
-		return nil, err
-	}
 	var cfg TeamsConfig
-	if err := doc.Decode(&cfg); err != nil {
-		return nil, fmt.Errorf("config: %w", err)
-	}
-	var extra yaml.Node
-	err = decoder.Decode(&extra)
-	if input.err != nil {
-		return nil, fmt.Errorf("config: read trailing YAML: %w", input.err)
-	}
-	if !errors.Is(err, io.EOF) {
-		if err != nil {
-			return nil, fmt.Errorf("config: trailing YAML: %w", err)
-		}
-		return nil, errors.New("config: expected exactly one YAML document")
+	if err := decodeDocument(r, &cfg); err != nil {
+		return nil, err
 	}
 	if err := Validate(&cfg); err != nil {
 		return nil, err
 	}
 	return &cfg, nil
+}
+
+func decodeDocument(r io.Reader, out any) error {
+	input := &errorReader{Reader: r}
+	decoder := yaml.NewDecoder(input)
+	var doc yaml.Node
+	err := decoder.Decode(&doc)
+	if input.err != nil {
+		return fmt.Errorf("config: read YAML: %w", input.err)
+	}
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return errors.New("config: empty YAML input")
+		}
+		return fmt.Errorf("config: invalid YAML: %w", err)
+	}
+	if len(doc.Content) != 1 {
+		return errors.New("config: empty YAML document")
+	}
+	if schemaErr := checkNode(doc.Content[0], reflect.TypeOf(out).Elem(), "", map[*yaml.Node]bool{}); schemaErr != nil {
+		return schemaErr
+	}
+	if decodeErr := doc.Decode(out); decodeErr != nil {
+		return fmt.Errorf("config: %w", decodeErr)
+	}
+	var extra yaml.Node
+	err = decoder.Decode(&extra)
+	if input.err != nil {
+		return fmt.Errorf("config: read trailing YAML: %w", input.err)
+	}
+	if !errors.Is(err, io.EOF) {
+		if err != nil {
+			return fmt.Errorf("config: trailing YAML: %w", err)
+		}
+		return errors.New("config: expected exactly one YAML document")
+	}
+	return nil
 }
 
 // checkNode validates the schema before decoding, retaining full field paths in
@@ -82,7 +89,7 @@ func checkNode(n *yaml.Node, typ reflect.Type, field string, active map[*yaml.No
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
-	// The schema uses only structs, slices, strings, and booleans.
+	// Check scalar types before YAML can coerce them into strings.
 	switch typ.Kind() { //nolint:exhaustive // Other kinds cannot occur in this schema.
 	case reflect.Struct:
 		if n.Kind != yaml.MappingNode || n.Tag != "!!map" {
@@ -116,6 +123,21 @@ func checkNode(n *yaml.Node, typ reflect.Type, field string, active map[*yaml.No
 				return err
 			}
 		}
+	case reflect.Map:
+		if n.Kind != yaml.MappingNode {
+			return fmt.Errorf("%s: expected mapping", location(field))
+		}
+		seen := map[string]bool{}
+		for i := 0; i < len(n.Content); i += 2 {
+			key := n.Content[i]
+			if key.Tag != "!!str" || seen[key.Value] {
+				return fmt.Errorf("%s: invalid or duplicate key", location(field))
+			}
+			seen[key.Value] = true
+			if err := checkNode(n.Content[i+1], typ.Elem(), field+"."+key.Value, active); err != nil {
+				return err
+			}
+		}
 	case reflect.Slice:
 		if n.Kind != yaml.SequenceNode || n.Tag != "!!seq" {
 			return fmt.Errorf("%s: expected list", location(field))
@@ -129,7 +151,8 @@ func checkNode(n *yaml.Node, typ reflect.Type, field string, active map[*yaml.No
 		if n.Kind != yaml.ScalarNode || n.Tag != "!!str" {
 			return fmt.Errorf("%s: expected string", location(field))
 		}
-		if strings.HasPrefix(field, "spec.defaults.roles[") && strings.HasSuffix(field, ".harness") {
+		if (strings.HasPrefix(field, "spec.defaults.roles[") || strings.HasPrefix(field, "spec.roles[")) &&
+			strings.HasSuffix(field, ".harness") {
 			if err := required(field, n.Value); err != nil {
 				return err
 			}

@@ -149,13 +149,13 @@ spec:
           onInit:
             - script: |
                 set -euo pipefail
-                make -C {{ $home }}/agents codex ROLE={{ .role.name }}
+                make -C {{ .role.sourceDir }} {{ .makeTarget }} ROLE={{ .role.path }}
                 {{- if .project.PROJECT_DIR }}
-                cd {{ $home }}/{{ .project.NAME }}
+                cd {{ .project.CLONE_DIR }}
                 git checkout main
                 git pull --ff-only
                 {{- else }}
-                cd {{ $home }}/agents
+                cd {{ .role.sourceDir }}/{{ .role.path }}
                 {{- end }}
                 {{- if $isRoot }}
                 sandbox=danger-full-access

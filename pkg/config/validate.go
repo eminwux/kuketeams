@@ -57,6 +57,9 @@ func Validate(cfg *TeamsConfig) error {
 	if err := validateGit(cfg.Spec.Git); err != nil {
 		return err
 	}
+	if err := validateBindings(&cfg.Spec); err != nil {
+		return err
+	}
 	return validateDefaults(&cfg.Spec.Defaults)
 }
 

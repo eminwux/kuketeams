@@ -266,3 +266,6 @@ The default `init` role path resolves to this self-contained tree. The skill
 separates draft YAML from applied configuration and never starts a cell implicitly.
 See the role guide for runtime access, selected-harness authentication, installation,
 and verification limits. Root-team composition and launch remain later epic steps.
+
+Structural operator composition is available through `pkg/compose`; see the
+[YAML contracts and step-3.2 library handoff](docs/composition.md).

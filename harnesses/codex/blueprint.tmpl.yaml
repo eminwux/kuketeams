@@ -1,0 +1,176 @@
+# Codex-harness cell template, parameterized by the role (.role.name) and by the matching
+# Role's spec.needs (skills, repos, mounts, params) and harnesses.codex.{sandbox,approval,secrets}.
+#
+# Codex CLI surface:
+#   Both launch modes use the shell startup below.
+#   interactive:     codex      --cd <dir> --sandbox <sandbox> --ask-for-approval <approval>
+#
+# Conventions match harnesses/claude/blueprint.tmpl.yaml — see that file's header
+# for the substitution / iteration semantics. The renderer is shared.
+apiVersion: v1beta1
+kind: CellBlueprint
+metadata:
+  name: {{ .role.name }}-codex
+  realm: {{ .realm }}
+  space: {{ .space }}
+  stack: {{ .stack }}
+{{- /*
+  $isRoot / $home — root-aware rendering, identical mechanism to
+  harnesses/claude/blueprint.tmpl.yaml: when the merged needs.image carries the
+  `root` capability the renderer selected the codex-root image (uid 0,
+  $HOME=/home/user), so every in-cell path follows $home and the root-only knobs
+  (privileged, nestedCgroupRuntime, tmpfs, /opt/cni, codex sandbox override)
+  render. teamrender exposes only upper/replace, so membership is a range+eq scan.
+*/ -}}
+{{- $isRoot := false }}
+{{- range .needs.image }}{{- if eq . "root" }}{{- $isRoot = true }}{{- end }}{{- end }}
+{{- $home := "/home/user" }}
+spec:
+  prefix: {{ .role.name }}-codex
+  parameters:
+    - name: PROMPT
+      description: "Prompt passed to `codex exec`; empty = interactive"
+      default: ""
+    - name: AGENT_NAME
+      description: "Cell-side AGENT_NAME env (statusline + identity)"
+      default: {{ .role.name }}-codex
+    {{- range .needs.params }}
+    {{- if not (or (eq . "PROMPT") (eq . "AGENT_NAME") (eq . "ANTHROPIC_MODEL")) }}
+    - name: {{ . }}
+      required: true
+    {{- end }}
+    {{- end }}
+  cell:
+    tty:
+      default: work
+    {{- if $isRoot }}
+    # Root cells run docker/containerd-in-cell; the nested cgroup runtime
+    # delegates a cgroup subtree so an inner runtime can manage its own scopes.
+    nestedCgroupRuntime: true
+    {{- end }}
+    containers:
+      - id: work
+        attachable: true
+        image: {{ .image }}
+        command: /bin/bash
+        workingDir: {{ $home }}
+        {{- if $isRoot }}
+        privileged: true
+        {{- end }}
+        env:
+          - PROMPT=${PROMPT}
+          - AGENT_NAME=${AGENT_NAME}
+          # Explicit role identity for the image-owned reflection Stop hook.
+          - AGENTS_ROLE={{ .role.name }}
+          {{- if .project.PROJECT_DIR }}
+          # AGENTS_REPO targets /reflect's learn-feedback issues; project-bound
+          # roles only (singleton meta-*/orchestrator cells have no .project, so
+          # the guard leaves it unset rather than exporting an empty value).
+          - AGENTS_REPO={{ .project.AGENTS_REPO }}
+          {{- end }}
+          - CODEX_HOME={{ $home }}/.codex
+          {{- if $isRoot }}
+          # IS_SANDBOX is claude's uid-0 guard; carried uniformly across root
+          # harness cells (inert for codex, kept for parity with claude-root).
+          - IS_SANDBOX=1
+          {{- end }}
+          # Root consumes a read-only SSH config owned by the host user.
+          # An explicit -F preserves that config without SSH's implicit
+          # per-user ownership check; /dev/null handles an absent config.
+          # Explicit -F also skips /etc/ssh/ssh_config (see harnesses/README.md).
+          - GIT_SSH_COMMAND=ssh{{ if $isRoot }} -F "$(if [ -f {{ $home }}/.ssh/config ]; then printf %s {{ $home }}/.ssh/config; else printf %s /dev/null; fi)"{{ end }} -i {{ $home }}/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={{ $home }}/.ssh/known_hosts
+        secrets:
+          {{- range .harnesses.codex.secrets }}
+          - name: {{ . }}
+            envName: {{ . | upper | replace "-" "_" }}
+          {{- end }}
+        volumes:
+          {{- range .needs.mounts }}
+          - source: {{ if eq . "ssh" }}{{ $.operator.HOME_DIR }}/.ssh{{ else }}{{ template "mount_source" . }}{{ end }}
+            target: {{ if eq . "ssh" }}{{ $home }}/.ssh{{ else }}{{ template "mount_target" . }}{{ end }}
+            readOnly: {{ template "mount_readonly" . }}
+          {{- end }}
+          {{- if .project.PROJECT_DIR }}
+          # Durable per-(project, role) codex state on a daemon-managed
+          # kind: Volume (eminwux/kukeon#1016), replacing the prior raw host
+          # bind under TEAM_ROOT. Keyed by (project, role) so cells of the same
+          # (role, project) share state while roles stay isolated; resolved in
+          # the cell's own scope at container start. See harnesses/README.md
+          # "State volume".
+          - kind: volume
+            source: {{ .project.NAME }}-{{ .role.name }}-codex
+            target: {{ $home }}/.codex
+          {{- else }}
+          # Singleton roles (meta-*/orchestrator) have no .project, so the
+          # Volume name falls back to per-role-only — guarded by the same
+          # project-bound conditional the template uses elsewhere.
+          - kind: volume
+            source: {{ .role.name }}-codex
+            target: {{ $home }}/.codex
+          {{- end }}
+          {{- if $isRoot }}
+          # CNI plugin binaries + conflists for the in-cell runtime's networking
+          # (matches the retired crew dev-root mount; the daemon's own /opt/cni
+          # binds target the kukeond cell, not workload cells).
+          - source: /opt/cni
+            target: /opt/cni
+          {{- end }}
+        {{- if $isRoot }}
+        # Host rootfs is an overlay on sandboxed dev hosts; docker/containerd
+        # cannot stack their overlay drivers on a host bind — back with tmpfs.
+        tmpfs:
+          - path: /var/lib/docker
+            sizeBytes: 4294967296
+          - path: /var/lib/containerd
+            sizeBytes: 4294967296
+        {{- end }}
+        git:
+          author:
+            name: {{ .operator.GIT_USER_NAME }}
+            email: {{ .operator.GIT_USER_EMAIL }}
+          committer:
+            name: {{ .operator.GIT_USER_NAME }}
+            email: {{ .operator.GIT_USER_EMAIL }}
+          signingKey:     {{ $home }}/.ssh/id_ed25519.pub
+          sign:           [commits, tags]
+          allowedSigners: {{ $home }}/.ssh/allowed_signers
+        repos:
+          {{- range .needs.repos }}
+          {{- if or (ne . "project") $.project.PROJECT_DIR }}
+          - name: {{ . }}
+            url: {{ template "repo_url" . }}
+            target: {{ $home }}/{{ if eq . "project" }}{{ $.project.NAME }}{{ else }}{{ template "repo_target" . }}{{ end }}
+            branch: main
+            required: true
+          {{- end }}
+          {{- end }}
+        tty:
+          prompt: "codex> "
+          onInit:
+            - script: |
+                set -euo pipefail
+                make -C {{ $home }}/agents codex ROLE={{ .role.name }}
+                {{- if .project.PROJECT_DIR }}
+                cd {{ $home }}/{{ .project.NAME }}
+                git checkout main
+                git pull --ff-only
+                {{- else }}
+                cd {{ $home }}/agents
+                {{- end }}
+                {{- if $isRoot }}
+                sandbox=danger-full-access
+                approval=never
+                {{- else }}
+                sandbox={{ if .harnesses.codex.sandbox }}{{ .harnesses.codex.sandbox }}{{ else }}danger-full-access{{ end }}
+                approval={{ if .harnesses.codex.approval }}{{ .harnesses.codex.approval }}{{ else }}never{{ end }}
+                {{- end }}
+                set -- -c 'project_doc_fallback_filenames=["CLAUDE.md"]' -c 'project_doc_max_bytes=131072'
+                if [ -n "${PROMPT:-}" ]; then
+                  exec codex "$@" --ask-for-approval never exec --json \
+                    --cd "$PWD" --sandbox "$sandbox" -- "$PROMPT"
+                else
+                  exec codex "$@" \
+                    -c 'tui.status_line=["hostname","model-with-reasoning","current-dir"]' \
+                    --ask-for-approval "$approval" \
+                    --cd "$PWD" --sandbox "$sandbox"
+                fi

@@ -1,0 +1,8 @@
+apiVersion: kuketeams.io/v1
+kind: Harness
+metadata:
+  name: opencode
+spec:
+  skillPath: $HOME/.agents/skills
+  makeTarget: opencode-openrouter
+  template: blueprint.tmpl.yaml

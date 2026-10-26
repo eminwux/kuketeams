@@ -1,0 +1,280 @@
+# Claude-harness cell template, parameterized by the role (.role.name) and by the matching
+# Role's spec.needs (skills, repos, mounts, params) and harnesses.claude.{settings, secrets}.
+#
+# The renderer (tracked under the Makefile-materialization carve-out of epic
+# #792) reads:
+#   - this template;
+#   - the Role document at <ROLE>/role.yaml;
+#   - the ImageCatalog at harnesses/images.yaml (images-migration carve-out);
+#   - the TeamsConfig (host) and ProjectTeam (per project) for operator-facts
+#     and per-project bindings;
+# and emits a kukeon v1beta1 CellBlueprint equivalent to the hand-written
+# per-(role, harness) blueprints that lived in the retired crew repo.
+#
+# Conventions in this template:
+#   - {{ .role.name }} is substituted with the Role.metadata.name.
+#   - {{ .image }} resolves via ImageCatalog from Role.spec.needs.image capabilities
+#     plus this harness's own name (claude): the harness a role runs under is
+#     fixed by which per-harness blueprint renders, not declared in needs.image,
+#     so the selector contributes "claude" here and matches images whose
+#     capabilities cover {claude} ∪ needs.image.
+#   - {{ range .needs.repos }} ... {{ end }} iterates Role.spec.needs.repos.
+#   - {{ range .needs.mounts }} ... {{ end }} iterates Role.spec.needs.mounts.
+#   - {{ range .harnesses.claude.secrets }} ... {{ end }} iterates the secrets
+#     scoped to this harness under Role.spec.harnesses.claude.secrets (secrets are
+#     per-harness, not role-level — claude declares only the secrets it consumes).
+#   - {{ .harnesses.claude.settings }} resolves to the role-local claude settings path.
+#   - {{ .operator.X }} pulls from TeamsConfig (REGISTRY, HOME_DIR, TEAM_ROOT,
+#     REPO_OWNER, GIT_USER_NAME, GIT_USER_EMAIL).
+#   - {{ .project.X }} pulls from ProjectTeam (AGENTS_REPO, PROJECT_DIR, NAME)
+#     when present (singleton roles like meta-* and orchestrator do not
+#     project-bind). NAME is the team label and is the in-cell project dir
+#     basename; PROJECT_DIR is the host-absolute project path and is used only
+#     as the project-bound guard, never composed into an in-cell path.
+#   - the mount_source/mount_target/mount_readonly and repo_url/repo_target
+#     named-template calls resolve against the sibling partials.tmpl.yaml.
+#     Partials see only the bare selector string, so the SSH mount's host home
+#     is composed here from $.operator.HOME_DIR (a partial cannot reach
+#     .operator). See harnesses/README.md for the full lookup contract.
+apiVersion: v1beta1
+kind: CellBlueprint
+metadata:
+  name: {{ .role.name }}-claude
+  realm: {{ .realm }}
+  space: {{ .space }}
+  stack: {{ .stack }}
+{{- /*
+  $isRoot is true when the merged needs.image (role ⊕ per-project ProjectTeam)
+  carries the `root` capability — i.e. the renderer selected the `claude-root`
+  image, which runs as uid 0 with $HOME=/home/user and the claude binary at
+  /home/user/.local/bin/claude. teamrender exposes only `upper`/`replace` (no `has`),
+  so membership is scanned with range+eq; `$isRoot = true` (assignment, not :=)
+  propagates out of the range scope. $home then drives every in-cell path so the
+  one template uses /home/user in both modes while root capabilities control
+  privilege and nested-runtime settings. See harnesses/README.md.
+*/ -}}
+{{- $isRoot := false }}
+{{- range .needs.image }}{{- if eq . "root" }}{{- $isRoot = true }}{{- end }}{{- end }}
+{{- $home := "/home/user" }}
+spec:
+  prefix: {{ .role.name }}-claude
+  parameters:
+    - name: PROMPT
+      description: "Slash command for claude --print; empty = interactive"
+      default: ""
+    - name: AGENT_NAME
+      description: "Cell-side AGENT_NAME env (statusline + identity)"
+      default: {{ .role.name }}
+    - name: ANTHROPIC_MODEL
+      description: "Claude model alias for the cell's claude sessions"
+      default: opus
+    {{- range .needs.params }}
+    {{- if not (or (eq . "PROMPT") (eq . "AGENT_NAME") (eq . "ANTHROPIC_MODEL")) }}
+    - name: {{ . }}
+      required: true
+    {{- end }}
+    {{- end }}
+  cell:
+    tty:
+      default: work
+    {{- if $isRoot }}
+    # Root cells run docker/containerd-in-cell for projects whose dev work
+    # builds or runs containers; the nested cgroup runtime delegates a cgroup
+    # subtree so an inner runtime can manage its own scopes.
+    nestedCgroupRuntime: true
+    {{- end }}
+    containers:
+      - id: work
+        attachable: true
+        image: {{ .image }}
+        command: /bin/bash
+        workingDir: {{ $home }}
+        {{- if $isRoot }}
+        privileged: true
+        {{- end }}
+        env:
+          - PROMPT=${PROMPT}
+          - AGENT_NAME=${AGENT_NAME}
+          {{- if .project.PROJECT_DIR }}
+          # AGENTS_REPO targets /reflect's learn-feedback issues; project-bound
+          # roles only (singleton meta-*/orchestrator cells have no .project, so
+          # the guard leaves it unset rather than exporting an empty value).
+          - AGENTS_REPO={{ .project.AGENTS_REPO }}
+          {{- end }}
+          - CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1
+          - ANTHROPIC_MODEL=${ANTHROPIC_MODEL}
+          {{- if $isRoot }}
+          # claude refuses to start as uid 0 unless IS_SANDBOX is set.
+          - IS_SANDBOX=1
+          {{- end }}
+          # Root consumes a read-only SSH config owned by the host user.
+          # An explicit -F preserves that config without SSH's implicit
+          # per-user ownership check; /dev/null handles an absent config.
+          # Explicit -F also skips /etc/ssh/ssh_config (see harnesses/README.md).
+          - GIT_SSH_COMMAND=ssh{{ if $isRoot }} -F "$(if [ -f {{ $home }}/.ssh/config ]; then printf %s {{ $home }}/.ssh/config; else printf %s /dev/null; fi)"{{ end }} -i {{ $home }}/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile={{ $home }}/.ssh/known_hosts
+        secrets:
+          {{- range .harnesses.claude.secrets }}
+          - name: {{ . }}
+            envName: {{ . | upper | replace "-" "_" }}
+          {{- end }}
+        volumes:
+          {{- range .needs.mounts }}
+          - source: {{ if eq . "ssh" }}{{ $.operator.HOME_DIR }}/.ssh{{ else }}{{ template "mount_source" . }}{{ end }}
+            target: {{ if eq . "ssh" }}{{ $home }}/.ssh{{ else }}{{ template "mount_target" . }}{{ end }}
+            readOnly: {{ template "mount_readonly" . }}
+          {{- end }}
+          {{- if .project.PROJECT_DIR }}
+          # Durable per-(project, role) agent state (memory / learnings /
+          # caches) on a daemon-managed kind: Volume (eminwux/kukeon#1016),
+          # replacing the prior raw host bind under TEAM_ROOT. Keyed by
+          # (project, role) so cells of the same (role, project) share state
+          # while pm/dev/pr-reviewer stay isolated; resolved in the cell's own
+          # scope at container start. See harnesses/README.md "State volume".
+          - kind: volume
+            source: {{ .project.NAME }}-{{ .role.name }}-claude
+            target: {{ $home }}/.claude
+          {{- else }}
+          # Singleton roles (meta-*/orchestrator) have no .project, so the
+          # Volume name falls back to per-role-only — guarded by the same
+          # project-bound conditional the template uses elsewhere.
+          - kind: volume
+            source: {{ .role.name }}-claude
+            target: {{ $home }}/.claude
+          {{- end }}
+          - source: {{ .operator.TEAM_ROOT }}/claude.json
+            target: {{ $home }}/.claude.json.seed
+            readOnly: true
+          {{- if $isRoot }}
+          # CNI plugin binaries + conflists the in-cell runtime needs for
+          # container networking (matches the retired crew dev-root mount). The
+          # daemon's own /opt/cni binds (kukeon bootstrap) target the kukeond
+          # cell, not workload cells, so a workload root cell must bind it here.
+          - source: /opt/cni
+            target: /opt/cni
+          {{- end }}
+        {{- if $isRoot }}
+        # Host rootfs is itself an overlay on sandboxed dev hosts, so docker's
+        # overlay2 driver and containerd's overlayfs snapshotter cannot stack on
+        # a host bind — back their state dirs with tmpfs instead.
+        tmpfs:
+          - path: /var/lib/docker
+            sizeBytes: 4294967296
+          - path: /var/lib/containerd
+            sizeBytes: 4294967296
+        {{- end }}
+        git:
+          author:
+            name: {{ .operator.GIT_USER_NAME }}
+            email: {{ .operator.GIT_USER_EMAIL }}
+          committer:
+            name: {{ .operator.GIT_USER_NAME }}
+            email: {{ .operator.GIT_USER_EMAIL }}
+          signingKey:     {{ $home }}/.ssh/id_ed25519.pub
+          sign:           [commits, tags]
+          allowedSigners: {{ $home }}/.ssh/allowed_signers
+        repos:
+          {{- range .needs.repos }}
+          - name: {{ . }}
+            url: {{ template "repo_url" . }}
+            target: {{ $home }}/{{ if eq . "project" }}{{ $.project.NAME }}{{ else }}{{ template "repo_target" . }}{{ end }}
+            branch: main
+            required: true
+          {{- end }}
+        tty:
+          prompt: "claude> "
+          onInit:
+            - script: |
+                [ -f {{ $home }}/.claude.json ] || cp {{ $home }}/.claude.json.seed {{ $home }}/.claude.json 2>/dev/null || echo '{}' > {{ $home }}/.claude.json
+            - script: |
+                make -C {{ $home }}/agents claude ROLE=${ROLE}
+            - script: |
+                {{- if .project.PROJECT_DIR }}
+                cd {{ $home }}/{{ .project.NAME }}
+                git checkout main
+                git pull
+                {{- end }}
+                if [ -n "$PROMPT" ]; then
+                  # Supervisor loop. This shell is the work container's PID 1, so
+                  # it owns the cell lifetime across turns. A one-shot
+                  # `claude --print "$PROMPT"; exit $?` exits at end_turn, PID 1
+                  # dies, and kukeon winds the whole cell down — so an agent that
+                  # ends its turn to "wait for a wakeup" self-destructs mid-task
+                  # (issue #772). Instead, re-invoke claude on the SAME session
+                  # whenever a turn scheduled a wakeup, and exit only once a turn
+                  # ends without one.
+                  #
+                  # Caveat (claude >= 2.1.163; this image runs 2.1.170): claude
+                  # itself terminates background Bash tasks ~5s after a -p turn
+                  # returns and stdin closes, independent of PID 1. So this loop
+                  # restores the re-invocation contract but does NOT keep an
+                  # in-flight backgrounded build alive across the yield — long
+                  # work must be foregrounded or shell-owned (follow-up to #772).
+                  SID=$(cat /proc/sys/kernel/random/uuid)
+                  MAX_TURNS=50
+                  turn=1
+                  resume=0
+                  next_prompt="$PROMPT"
+                  last_err=""
+                  while [ "$turn" -le "$MAX_TURNS" ]; do
+                    turnlog="/tmp/claude-turn-$turn.jsonl"
+                    if [ "$resume" -eq 0 ]; then
+                      claude \
+                        --settings {{ $home }}/agents/${ROLE}/{{ .harnesses.claude.settings }} \
+                        --add-dir {{ $home }}/agents/${ROLE} \
+                        --session-id "$SID" \
+                        --verbose \
+                        --output-format stream-json \
+                        --include-partial-messages \
+                        --print "$next_prompt" </dev/null | tee "$turnlog"
+                    else
+                      claude \
+                        --settings {{ $home }}/agents/${ROLE}/{{ .harnesses.claude.settings }} \
+                        --add-dir {{ $home }}/agents/${ROLE} \
+                        --resume "$SID" \
+                        --verbose \
+                        --output-format stream-json \
+                        --include-partial-messages \
+                        --print "$next_prompt" </dev/null | tee "$turnlog"
+                    fi
+                    # tee masks claude's exit code under POSIX sh, so read the
+                    # turn outcome and the yield signal from claude's own
+                    # stream-json result rather than $?. Every branch below uses
+                    # if/then/fi rather than `cond && action` lists so the loop is
+                    # safe even if onInit runs under `set -e` (a `cond && action`
+                    # whose cond is false returns non-zero and would abort the
+                    # script — fatal on the normal non-error turn).
+                    result_err=$(jq -rc 'select(.type=="result") | .is_error' "$turnlog" 2>/dev/null | tail -1)
+                    # No result event at all => claude crashed mid-turn (segfault,
+                    # OOM, killed) before emitting `result`. Treat that as an error
+                    # exit, not clean completion — otherwise a hard crash reads as
+                    # a normal "no wakeup, done" turn and exits 0.
+                    if [ -z "$result_err" ] || [ "$result_err" = "true" ]; then
+                      last_err="true"
+                      break
+                    fi
+                    last_err="false"
+                    # A ScheduleWakeup tool_use is the "yield, re-invoke me"
+                    # signal; its input carries the delay and the prompt to fire
+                    # on resume. No ScheduleWakeup this turn => the agent is done.
+                    wake=$(jq -rc 'select(.type=="assistant") | .message.content[]? | select(.type=="tool_use" and .name=="ScheduleWakeup") | .input' "$turnlog" 2>/dev/null | tail -1)
+                    if [ -z "$wake" ]; then break; fi
+                    delay=$(printf '%s' "$wake" | jq -r '.delaySeconds // 60' 2>/dev/null)
+                    case "$delay" in ''|*[!0-9]*) delay=60 ;; esac
+                    # ScheduleWakeup's runtime clamp is [60, 3600]; mirror its floor.
+                    if [ "$delay" -lt 60 ]; then delay=60; fi
+                    if [ "$delay" -gt 3600 ]; then delay=3600; fi
+                    np=$(printf '%s' "$wake" | jq -r '.prompt // empty' 2>/dev/null)
+                    case "$np" in ''|'<<autonomous-loop-dynamic>>'|'<<autonomous-loop>>') np="Resume your task." ;; esac
+                    next_prompt="$np"
+                    resume=1
+                    sleep "$delay"
+                    turn=$((turn + 1))
+                  done
+                  if [ "$last_err" = "true" ]; then exit 1; fi
+                  exit 0
+                else
+                  claude \
+                    --settings {{ $home }}/agents/${ROLE}/{{ .harnesses.claude.settings }} \
+                    --add-dir {{ $home }}/agents/${ROLE}
+                  exit $?
+                fi

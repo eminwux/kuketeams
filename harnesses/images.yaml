@@ -1,0 +1,81 @@
+# Prebuilt-image capability manifest (the v1 selector input).
+#
+# Images are hand-built and static — there is no dynamic Dockerfile generation
+# and no LLM in the build path. `capabilities` is a SELECTOR over these
+# prebuilt images, not a build spec: `kuke team init` (kukeon #796) matches a
+# role's merged `needs.image` capability names — plus the name of the harness
+# the cell is being rendered for — against these entries and hard-errors when
+# no image satisfies them. The harness name is NOT declared in the role's
+# `needs.image`; the harness a role runs under is fixed by which per-harness
+# blueprint renders, so the selector contributes it. A role therefore stays
+# harness-agnostic in `needs.image` (it lists only `gh`, `kuke`, …) and still
+# selects the right per-harness image.
+#
+# Schema: kuketeams.io/v1 ImageCatalog (kukeon #793).
+#   ref          — short image name (matches the build tag's name component)
+#   harness      — which harness this image serves (claude | codex | opencode)
+#   image        — registry-qualified ref the selector applies to a CellConfig
+#   build        — static Dockerfile this image is built from (context + file);
+#                  see `make -C harnesses images` (build-images.sh). Local and CI builds use the same
+#                  Dockerfiles via docker-bake.hcl; REGISTRY and TAG override
+#                  the default kuketeams namespace and development tag.
+#   capabilities — capability names this prebuilt image provides. Includes the
+#                  harness name (claude | codex | opencode): the selector
+#                  contributes the rendering harness's name to a role's merged
+#                  `needs.image` capabilities, so the catalog must assert it
+#                  here for `kuke team init` to select the image. This is
+#                  deliberate, not redundant with `harness:` above — the
+#                  `harness:` field records which harness an image serves; the
+#                  `claude`/`codex`/`opencode` capability is what the selector
+#                  matches against. Roles do NOT list the harness in
+#                  `needs.image` (it would pin a multi-harness role to one
+#                  harness's image).
+#
+# Build intermediates (base, base-user, base-root) are NOT cataloged here:
+# they are not selectable cell images, only FROM-chain ancestors of the leaves.
+# `make -C harnesses images` builds them base-before-leaves regardless.
+apiVersion: kuketeams.io/v1
+kind: ImageCatalog
+spec:
+  images:
+    - ref: claude
+      harness: claude
+      image: ghcr.io/eminwux/kuketeams/claude:v0.1.0
+      build: { context: harnesses/claude, dockerfile: Dockerfile }
+      capabilities: [claude, git, gh, go, node, make]
+
+    - ref: claude-android
+      harness: claude
+      image: ghcr.io/eminwux/kuketeams/claude-android:v0.1.0
+      build: { context: harnesses/claude, dockerfile: Dockerfile.android }
+      capabilities: [claude, git, gh, go, node, make, android]
+
+    - ref: claude-root
+      harness: claude
+      image: ghcr.io/eminwux/kuketeams/claude-root:v0.1.0
+      build: { context: harnesses/claude, dockerfile: Dockerfile.root }
+      capabilities: [claude, git, gh, go, node, make, root]
+
+    - ref: codex
+      harness: codex
+      image: ghcr.io/eminwux/kuketeams/codex:v0.1.0
+      build: { context: harnesses/codex, dockerfile: Dockerfile }
+      capabilities: [codex, git, gh, go, node, make]
+
+    - ref: codex-root
+      harness: codex
+      image: ghcr.io/eminwux/kuketeams/codex-root:v0.1.0
+      build: { context: harnesses/codex, dockerfile: Dockerfile.root }
+      capabilities: [codex, git, gh, go, node, make, root]
+
+    - ref: opencode
+      harness: opencode
+      image: ghcr.io/eminwux/kuketeams/opencode:v0.1.0
+      build: { context: harnesses/opencode, dockerfile: Dockerfile }
+      capabilities: [opencode, git, gh, go, node, make]
+
+    - ref: opencode-root
+      harness: opencode
+      image: ghcr.io/eminwux/kuketeams/opencode-root:v0.1.0
+      build: { context: harnesses/opencode, dockerfile: Dockerfile.root }
+      capabilities: [opencode, git, gh, go, node, make, root]

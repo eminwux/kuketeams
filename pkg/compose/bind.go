@@ -33,6 +33,7 @@ func bind(
 	cfg *config.TeamsConfig,
 	selection config.Role,
 	role *model.Role,
+	sources []config.Source,
 	team string,
 ) error {
 	cc, bp := p.Config, p.Blueprint
@@ -68,7 +69,7 @@ func bind(
 				mount.Ensure = true
 			}
 		}
-		if err := bindRepos(container, cfg, cc, boundRepos); err != nil {
+		if err := bindRepos(container, sources, cc, boundRepos); err != nil {
 			return err
 		}
 		if err := bindSecrets(p, cfg, required, container, boundSecrets); err != nil {
@@ -148,34 +149,35 @@ func bindParameters(p *Pair, cfg *config.TeamsConfig, selection config.Role, rol
 			return fmt.Errorf("template did not declare required parameter %q", name)
 		}
 	}
-	// Scalars are not a credential channel. Reject accidental substitution into a
-	// declared secret destination before emitting any output.
-	for name := range cfg.Spec.Parameters {
-		if !parameters[name] {
-			return fmt.Errorf("spec.parameters: unsupported parameter %q", name)
-		}
-	}
 
 	return nil
 }
 
 func bindRepos(
 	container *api.BlueprintContainer,
-	cfg *config.TeamsConfig,
+	sources []config.Source,
 	cc *api.CellConfigDoc,
 	boundRepos map[string]bool,
 ) error {
 	for j := range container.Repos {
 		slot := &container.Repos[j]
-		r, ok := repository(cfg, slot.Name)
+		r, ok := runtimeSource(sources, slot.Name)
 		if !ok {
-			return fmt.Errorf("spec.repositories: missing binding for template repo %q", slot.Name)
+			return fmt.Errorf("sources: missing clonePath for template repo %q", slot.Name)
 		}
 		slot.URL = ""
-		slot.Target = r.Target
+		slot.Target = r.ClonePath
 		slot.Branch = ""
 		slot.Ref = ""
-		cc.Spec.Repos[slot.Name] = api.CellConfigRepoFill{URL: r.URL, Branch: r.Branch, Ref: r.Ref}
+		ref := r.Tag
+		if r.Commit != "" {
+			ref = r.Commit
+		}
+		url := r.URL
+		if strings.HasPrefix(url, "github.com/") {
+			url = "https://" + url
+		}
+		cc.Spec.Repos[slot.Name] = api.CellConfigRepoFill{URL: url, Branch: r.Branch, Ref: ref}
 		boundRepos[slot.Name] = true
 	}
 

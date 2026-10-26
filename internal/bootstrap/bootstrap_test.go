@@ -64,21 +64,20 @@ func TestFirstRun(t *testing.T) {
 	want := &config.TeamsConfig{
 		APIVersion: "kuketeams.io/v1", Kind: "TeamsConfig",
 		Spec: config.Spec{
-			Repositories: []config.Repository{
-				{
-					Name:   "kuketeams",
-					URL:    "https://github.com/eminwux/kuketeams.git",
-					Target: "/home/user/kuketeams",
-					Branch: "main",
-				},
-			},
 			Git: &config.Git{
 				Author:     &config.Identity{Name: "Operator", Email: "operator@example.test"},
 				Committer:  &config.Identity{Name: "Operator", Email: "operator@example.test"},
 				SigningKey: "~/.ssh/operator.pub", Sign: []string{"commits", "tags"}, AllowedSigners: "~/allowed_signers",
 			},
 			Defaults: config.Defaults{
-				Sources: []config.Source{{Name: "kuketeams", URL: "github.com/eminwux/kuketeams", Branch: "main"}},
+				Sources: []config.Source{
+					{
+						Name:      "kuketeams",
+						URL:       "github.com/eminwux/kuketeams",
+						Branch:    "main",
+						ClonePath: "/home/user/kuketeams",
+					},
+				},
 				Roles: []config.Role{
 					{
 						Name:   "operator",

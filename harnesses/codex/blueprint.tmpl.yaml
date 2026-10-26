@@ -136,13 +136,11 @@ spec:
           allowedSigners: {{ $home }}/.ssh/allowed_signers
         repos:
           {{- range .needs.repos }}
-          {{- if or (ne . "project") $.project.PROJECT_DIR }}
           - name: {{ . }}
             url: {{ template "repo_url" . }}
             target: {{ $home }}/{{ if eq . "project" }}{{ $.project.NAME }}{{ else }}{{ template "repo_target" . }}{{ end }}
             branch: main
             required: true
-          {{- end }}
           {{- end }}
         tty:
           prompt: "codex> "
@@ -152,8 +150,6 @@ spec:
                 make -C {{ .role.sourceDir }} {{ .makeTarget }} ROLE={{ .role.path }}
                 {{- if .project.PROJECT_DIR }}
                 cd {{ .project.CLONE_DIR }}
-                git checkout main
-                git pull --ff-only
                 {{- else }}
                 cd {{ .role.sourceDir }}/{{ .role.path }}
                 {{- end }}

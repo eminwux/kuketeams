@@ -190,8 +190,6 @@ spec:
             - script: |
                 {{- if .project.PROJECT_DIR }}
                 cd {{ .project.CLONE_DIR }}
-                git checkout main
-                git pull
                 {{- else }}
                 cd {{ .role.sourceDir }}/{{ .role.path }}
                 {{- end }}

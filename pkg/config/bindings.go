@@ -37,26 +37,7 @@ func SafePath(value string) bool {
 }
 
 func validateBindings(s *Spec) error {
-	repos, secrets, targets := map[string]bool{}, map[string]bool{}, map[string]bool{}
-	for i, repo := range s.Repositories {
-		field := fmt.Sprintf("spec.repositories[%d]", i)
-		if err := unique(field+".name", repo.Name, repos); err != nil {
-			return err
-		}
-		if !ValidName(repo.Name) || !SafePath(repo.Target) {
-			return fmt.Errorf("%s: require a safe name and absolute target path", field)
-		}
-		if targets[repo.Target] {
-			return fmt.Errorf("%s.target: duplicate repository target", field)
-		}
-		targets[repo.Target] = true
-		if err := required(field+".url", repo.URL); err != nil {
-			return err
-		}
-		if repo.Branch != "" && repo.Ref != "" {
-			return fmt.Errorf("%s: branch and ref are mutually exclusive", field)
-		}
-	}
+	secrets := map[string]bool{}
 	for i, binding := range s.Secrets {
 		field := fmt.Sprintf("spec.secrets[%d]", i)
 		if err := unique(field+".name", binding.Name, secrets); err != nil {

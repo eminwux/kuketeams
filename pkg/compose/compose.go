@@ -24,6 +24,7 @@ import (
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"path"
 	"slices"
 	"strings"
@@ -102,11 +103,22 @@ func Compose(cfg *config.TeamsConfig, team *config.Team, opts Options) (*Result,
 			if (role.Harness != "" && role.Harness != h.Name) || (role.Harness == "" && !h.Default) {
 				continue
 			}
-			pair, pairErr := composePair(cfg, team.Metadata.Name, role, h, opts)
+			pair, pairErr := composePair(cfg, team.Metadata.Name, role, h, effective.Sources, opts)
 			if pairErr != nil {
 				return nil, fmt.Errorf("compose %s/%s: %w", role.Name, h.Name, pairErr)
 			}
 			result.Pairs = append(result.Pairs, pair)
+		}
+	}
+	parameters := map[string]bool{}
+	for _, pair := range result.Pairs {
+		for _, param := range pair.Blueprint.Spec.Parameters {
+			parameters[param.Name] = true
+		}
+	}
+	for _, name := range slices.Sorted(maps.Keys(cfg.Spec.Parameters)) {
+		if !parameters[name] {
+			return nil, fmt.Errorf("spec.parameters: unsupported parameter %q", name)
 		}
 	}
 	return result, nil
@@ -133,6 +145,7 @@ func composePair(
 	team string,
 	selection config.Role,
 	hsel config.Harness,
+	sources []config.Source,
 	opts Options,
 ) (Pair, error) {
 	if !config.ValidName(hsel.Name) {
@@ -178,14 +191,14 @@ func composePair(
 	if err != nil {
 		return Pair{}, err
 	}
-	repo, ok := repository(cfg, selection.Source)
+	repo, ok := runtimeSource(sources, selection.Source)
 	if !ok {
-		return Pair{}, fmt.Errorf("spec.repositories: missing explicit role-source binding %q", selection.Source)
+		return Pair{}, fmt.Errorf("sources: missing clonePath for required role source %q", selection.Source)
 	}
 	if settingsErr := checkSettings(hsel.Name, settings); settingsErr != nil {
 		return Pair{}, settingsErr
 	}
-	bp, err := render(hfs, hsel.Path, &harness, &role, selection, repo, image, needs, cfg, opts)
+	bp, err := render(hfs, hsel.Path, &harness, &role, selection, repo, image, needs, sources, opts)
 	if err != nil {
 		return Pair{}, err
 	}
@@ -211,7 +224,7 @@ func composePair(
 		},
 	}
 	pair := Pair{Role: selection.Name, Harness: hsel.Name, Image: image, Blueprint: bp, Config: cc}
-	if bindErr := bind(&pair, cfg, selection, &role, team); bindErr != nil {
+	if bindErr := bind(&pair, cfg, selection, &role, sources, team); bindErr != nil {
 		return Pair{}, bindErr
 	}
 	pair.Seeds, err = resolveSeeds(&harness, hsel.Name, opts.TeamDir)
@@ -243,13 +256,14 @@ func decode(raw []byte, name string, out any) error {
 	return nil
 }
 
-func repository(cfg *config.TeamsConfig, name string) (config.Repository, bool) {
-	for _, repo := range cfg.Spec.Repositories {
-		if repo.Name == name {
-			return repo, true
+// runtimeSource resolves only explicitly requested clones from effective selections.
+func runtimeSource(sources []config.Source, name string) (config.Source, bool) {
+	for _, source := range sources {
+		if source.Name == name && source.ClonePath != "" {
+			return source, true
 		}
 	}
-	return config.Repository{}, false
+	return config.Source{}, false
 }
 
 // SelectImage preserves catalog order and requires one published image to carry

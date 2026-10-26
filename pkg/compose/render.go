@@ -91,7 +91,7 @@ func checkSettings(h string, s model.RoleHarness) error {
 }
 
 func render(source fs.FS, hpath string, h *model.Harness, role *model.Role, selection config.Role,
-	repo config.Repository, image model.ImageCatalogEntry, needs []string, cfg *config.TeamsConfig, opts Options,
+	repo config.Source, image model.ImageCatalogEntry, needs []string, sources []config.Source, opts Options,
 ) (*api.CellBlueprintDoc, error) {
 	if !fs.ValidPath(h.Spec.Template) {
 		return nil, errors.New("harness template: require a source-relative filename")
@@ -123,17 +123,22 @@ func render(source fs.FS, hpath string, h *model.Harness, role *model.Role, sele
 	settings := role.Spec.Harnesses[h.Metadata.Name]
 	secretNames := union(role.Spec.Needs.Secrets, settings.Secrets)
 	sourceRepos := union(role.Spec.Needs.Repos, []string{selection.Source})
+	for _, source := range sources {
+		if source.ClonePath != "" {
+			sourceRepos = union(sourceRepos, []string{source.Name})
+		}
+	}
 	for _, name := range sourceRepos {
-		if _, ok := repository(cfg, name); !ok {
-			return nil, fmt.Errorf("spec.repositories: missing explicit repository binding %q", name)
+		if _, ok := runtimeSource(sources, name); !ok {
+			return nil, fmt.Errorf("sources: missing clonePath for required repository %q", name)
 		}
 	}
 	project := map[string]string{"PROJECT_DIR": "", "CLONE_DIR": "", "NAME": "", "AGENTS_REPO": "", "X": ""}
 	if slices.Contains(role.Spec.Needs.Repos, "project") {
-		r, _ := repository(cfg, "project")
-		project["PROJECT_DIR"] = r.Target
-		project["CLONE_DIR"] = r.Target
-		project["NAME"] = path.Base(r.Target)
+		r, _ := runtimeSource(sources, "project")
+		project["PROJECT_DIR"] = r.ClonePath
+		project["CLONE_DIR"] = r.ClonePath
+		project["NAME"] = path.Base(r.ClonePath)
 	}
 	for _, mount := range role.Spec.Needs.Mounts {
 		if mount == "ssh" && !config.SafePath(opts.HomeDir) {
@@ -145,7 +150,7 @@ func render(source fs.FS, hpath string, h *model.Harness, role *model.Role, sele
 	}
 	ctx := map[string]any{
 		"realm": opts.Scope.Realm, "space": opts.Scope.Space, "stack": opts.Scope.Stack, "image": image.Image,
-		"role":       map[string]any{"name": role.Metadata.Name, "path": selection.Path, "sourceDir": repo.Target},
+		"role":       map[string]any{"name": role.Metadata.Name, "path": selection.Path, "sourceDir": repo.ClonePath},
 		"makeTarget": h.Spec.MakeTarget,
 		"needs": map[string]any{
 			"image":  needs,

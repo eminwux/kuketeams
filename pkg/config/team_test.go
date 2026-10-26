@@ -27,7 +27,7 @@ import (
 )
 
 func TestTeamEntryRoundTripsPreserveInheritance(t *testing.T) {
-	for _, lists := range []string{"", "  roles: []\n  harnesses: []\n", "  sources: []\n"} {
+	for _, lists := range []string{"", "  roles: []\n  harnesses: []\n", "  sources: []\n", "  sources:\n    - {name: custom, url: https://example.test/custom, tag: v2, clonePath: /opt/custom}\n"} {
 		t.Run(lists, func(t *testing.T) {
 			raw := "apiVersion: kuketeams.io/v1\nkind: Team\nmetadata:\n  name: root\nspec:\n" + lists
 			if lists == "" {
@@ -145,5 +145,63 @@ func TestStrictTeamAndEntry(t *testing.T) {
 		if _, err := config.DecodeTeam(strings.NewReader(raw)); err == nil {
 			t.Fatalf("accepted %s", raw)
 		}
+	}
+}
+
+func TestSourceClonePathValidationAndRoundTrip(t *testing.T) {
+	const base = `apiVersion: kuketeams.io/v1
+kind: TeamsConfig
+spec:
+  defaults:
+    sources:
+      - name: roles
+        url: https://example.test/roles
+        tag: v2
+`
+	for _, value := range []string{"", "        clonePath: /opt/roles\n"} {
+		cfg, err := config.Decode(strings.NewReader(base + value))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out bytes.Buffer
+		if err = config.Encode(&out, cfg); err != nil {
+			t.Fatal(err)
+		}
+		decoded, err := config.Decode(&out)
+		if err != nil || !reflect.DeepEqual(cfg, decoded) {
+			t.Fatalf("round trip: %v", err)
+		}
+	}
+	for _, value := range []string{"relative", "/opt/../roles", "/opt/with space", "/"} {
+		if _, err := config.Decode(strings.NewReader(base + "        clonePath: " + value + "\n")); err == nil {
+			t.Fatalf("accepted clone path %q", value)
+		}
+	}
+	duplicate := base + `        clonePath: /opt/roles
+      - name: other
+        url: https://example.test/other
+        branch: topic
+        clonePath: /opt/roles
+`
+	if _, err := config.Decode(strings.NewReader(duplicate)); err == nil ||
+		!strings.Contains(err.Error(), "duplicate clone") {
+		t.Fatalf("duplicate destinations: %v", err)
+	}
+	team, err := config.DecodeTeam(strings.NewReader(`apiVersion: kuketeams.io/v1
+kind: Team
+metadata: {name: root}
+spec:
+  sources:
+    - {name: roles, url: https://example.test/roles, tag: v2, clonePath: relative}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.Decode(strings.NewReader(base))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = config.Resolve(cfg, team); err == nil || !strings.Contains(err.Error(), "clonePath") {
+		t.Fatalf("effective team clone path not validated: %v", err)
 	}
 }

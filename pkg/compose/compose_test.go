@@ -22,6 +22,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -237,8 +238,10 @@ func TestActionableFailures(t *testing.T) {
 	}{
 		{
 			"role-source",
-			"missing explicit role-source",
-			func(c *config.TeamsConfig, _ *compose.Options, _ fstest.MapFS) { c.Spec.Repositories = nil },
+			"missing clonePath for required role source",
+			func(c *config.TeamsConfig, _ *compose.Options, _ fstest.MapFS) {
+				c.Spec.Defaults.Sources[0].ClonePath = ""
+			},
 		},
 		{"capability", "no published image", func(c *config.TeamsConfig, _ *compose.Options, _ fstest.MapFS) {
 			c.Spec.Defaults.Roles[0].Needs.Image = []string{"absent-capability"}
@@ -364,7 +367,7 @@ func assertRootResources(t *testing.T, result *compose.Result) {
 		t.Fatal("state volume missing team ownership/ensure")
 	}
 	if len(p.Config.Spec.Repos) != 1 ||
-		p.Config.Spec.Repos["kuketeams"].URL != "https://github.com/eminwux/kuketeams.git" {
+		p.Config.Spec.Repos["kuketeams"].URL != "https://github.com/eminwux/kuketeams" {
 		t.Fatal("missing explicit role source")
 	}
 	script := c.Tty.OnInit[0].Script
@@ -386,13 +389,13 @@ func TestRenderedLaunchScriptsAndExplicitProjectRepo(t *testing.T) {
 		[]byte("  needs:"),
 		[]byte("  needs:\n    repos: [project]"),
 	)
-	cfg.Spec.Repositories = append(
-		cfg.Spec.Repositories,
-		config.Repository{
-			Name:   "project",
-			URL:    "https://example.test/work.git",
-			Target: "/home/user/work/explicit-repo",
-			Ref:    "v2",
+	cfg.Spec.Defaults.Sources = append(
+		cfg.Spec.Defaults.Sources,
+		config.Source{
+			Name:      "project",
+			URL:       "https://example.test/work.git",
+			ClonePath: "/home/user/work/explicit-repo",
+			Tag:       "v2",
 		},
 	)
 	opts.Scope = compose.Scope{Realm: "ops", Space: "agents", Stack: "root"}
@@ -448,5 +451,168 @@ func TestSecretDestinationConflicts(t *testing.T) {
 	result, err = compose.Compose(cfg, config.Root(), opts)
 	if err == nil || result != nil || !strings.Contains(err.Error(), "conflicts with template") {
 		t.Fatalf("result=%v err=%v", result, err)
+	}
+}
+
+func TestParametersAcrossSelectedHarnesses(t *testing.T) {
+	cfg, opts := fixture(t)
+	allHarnesses(cfg)
+	cfg.Spec.Defaults.Harnesses = cfg.Spec.Defaults.Harnesses[:2]
+	cfg.Spec.Parameters = map[string]string{"ANTHROPIC_MODEL": "sonnet", "PROMPT": "hello"}
+	result, err := compose.Compose(cfg, config.Root(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, pair := range result.Pairs {
+		if pair.Config.Spec.Values["PROMPT"] != "hello" {
+			t.Fatal("shared parameter lost")
+		}
+		value, ok := pair.Config.Spec.Values["ANTHROPIC_MODEL"]
+		if pair.Harness == "claude" {
+			if !ok || value != "sonnet" {
+				t.Fatal("Claude parameter lost")
+			}
+		} else if ok {
+			t.Fatal("Claude parameter bound to Codex")
+		}
+	}
+	cfg.Spec.Defaults.Roles[0].Harness = "codex"
+	if result, err = compose.Compose(cfg, config.Root(), opts); err == nil || result != nil ||
+		!strings.Contains(err.Error(), `unsupported parameter "ANTHROPIC_MODEL"`) {
+		t.Fatalf("unselected harness accepted parameter: %v", err)
+	}
+}
+
+func TestEffectiveSourcesControlRuntimeClones(t *testing.T) {
+	cfg, opts := fixture(t)
+	allHarnesses(cfg)
+	cfg.Spec.Secrets = []config.SecretBinding{routerBinding()}
+	cfg.Spec.Defaults.Sources = append(cfg.Spec.Defaults.Sources,
+		config.Source{Name: "definitions-only", URL: "https://example.test/defs", Tag: "v1"})
+	team := config.Root()
+	team.Spec.Sources = []config.Source{
+		{Name: "kuketeams", URL: "https://example.test/roles", Commit: "abc123", ClonePath: "/opt/roles"},
+		{Name: "extra", URL: "https://example.test/extra", Branch: "topic", ClonePath: "/opt/extra"},
+		{Name: "project", URL: "https://example.test/project", Tag: "v3", ClonePath: "/opt/project"},
+		{Name: "definitions-only", URL: "https://example.test/defs", Tag: "v1"},
+	}
+	result, err := compose.Compose(cfg, team, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pair := result.Pairs[0]
+	if len(pair.Config.Spec.Repos) != 3 || pair.Config.Spec.Repos["kuketeams"].URL != "https://example.test/roles" ||
+		pair.Config.Spec.Repos["kuketeams"].Ref != "abc123" || pair.Config.Spec.Repos["extra"].Branch != "topic" {
+		t.Fatalf("effective source clone declarations lost: %+v", pair.Config.Spec.Repos)
+	}
+	if !strings.Contains(pair.Blueprint.Spec.Cell.Containers[0].Tty.OnInit[0].Script, "make -C /opt/roles") {
+		t.Fatal("global source path used instead of team override")
+	}
+	for _, selected := range result.Pairs {
+		if len(selected.Config.Spec.Repos) != 3 || len(selected.Blueprint.Spec.Cell.Containers[0].Repos) != 3 {
+			t.Fatalf("%s omitted explicitly requested clones", selected.Harness)
+		}
+	}
+	team.Spec.Sources[0].ClonePath = ""
+	if result, err = compose.Compose(cfg, team, opts); err == nil || result != nil ||
+		!strings.Contains(err.Error(), "clonePath") {
+		t.Fatalf("required role clone silently inferred: %v", err)
+	}
+}
+
+// Execute the rendered launch stages in a real local checkout. Harness binaries
+// and materialization are stubbed; Git and the launcher's working directory are real.
+func TestLaunchPreservesSourceRevision(t *testing.T) {
+	for _, revision := range []string{"branch", "tag", "commit"} {
+		t.Run(revision, func(t *testing.T) {
+			cfg, opts := fixture(t)
+			allHarnesses(cfg)
+			cfg.Spec.Secrets = []config.SecretBinding{routerBinding()}
+			root := t.TempDir()
+			repoDir := filepath.Join(root, "project")
+			runGit := func(args ...string) string {
+				t.Helper()
+				cmd := exec.CommandContext(t.Context(), "git", args...)
+				cmd.Dir = root
+				raw, err := cmd.CombinedOutput()
+				if err != nil {
+					t.Fatalf("git %v: %v: %s", args, err, raw)
+				}
+				return strings.TrimSpace(string(raw))
+			}
+			sourceDir, err := filepath.Abs("../..")
+			if err != nil {
+				t.Fatal(err)
+			}
+			runGit("clone", "--quiet", "--shared", "--no-checkout", sourceDir, repoDir)
+			sha := runGit("-C", repoDir, "rev-parse", "HEAD")
+			project := config.Source{Name: "project", URL: "https://example.test/project", ClonePath: repoDir}
+			wantBranch := ""
+			switch revision {
+			case "branch":
+				project.Branch, wantBranch = "selected-topic", "selected-topic"
+				runGit("-C", repoDir, "checkout", "-b", project.Branch, sha)
+			case "tag":
+				project.Tag = "selected-v2"
+				runGit("-C", repoDir, "tag", "--no-sign", project.Tag, sha)
+				runGit("-C", repoDir, "checkout", "--detach", project.Tag)
+			case "commit":
+				project.Commit = sha
+				runGit("-C", repoDir, "checkout", "--detach", sha)
+			}
+			cfg.Spec.Defaults.Sources = append(cfg.Spec.Defaults.Sources, project)
+			source := copiedSource(t)
+			source["roles/operator/role.yaml"].Data = bytes.ReplaceAll(source["roles/operator/role.yaml"].Data,
+				[]byte("  needs:"), []byte("  needs:\n    repos: [project]"))
+			opts.Sources["kuketeams"] = source
+			result, err := compose.Compose(cfg, config.Root(), opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			binDir := filepath.Join(root, "bin")
+			if err = os.Mkdir(binDir, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			for _, name := range []string{"make", "codex", "claude", "opencode"} {
+				script := "#!/bin/sh\nexit 0\n"
+				if name != "make" {
+					script = "#!/bin/sh\n(git symbolic-ref --quiet --short HEAD || true) > \"$LAUNCH_STATE\"\ngit rev-parse HEAD >> \"$LAUNCH_STATE\"\n"
+				}
+				if err = os.WriteFile(filepath.Join(binDir, name), []byte(script), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, pair := range result.Pairs {
+				fill := pair.Config.Spec.Repos["project"]
+				if fill.Branch != project.Branch || fill.Ref != project.Tag+project.Commit {
+					t.Fatalf("%s lost source revision: %+v", pair.Harness, fill)
+				}
+				var launch strings.Builder
+				for _, stage := range pair.Blueprint.Spec.Cell.Containers[0].Tty.OnInit {
+					if strings.Contains(stage.Script, "make -C") || strings.Contains(stage.Script, "cd "+repoDir) {
+						launch.WriteString(stage.Script + "\n")
+					}
+				}
+				state := filepath.Join(root, pair.Harness+"-state")
+				cmd := exec.CommandContext(t.Context(), "bash", "-eu", "-c", launch.String())
+				cmd.Env = append(
+					os.Environ(),
+					"PATH="+binDir+":"+os.Getenv("PATH"),
+					"PROMPT=",
+					"OPENROUTER_MODEL=test",
+					"LAUNCH_STATE="+state,
+				)
+				if output, launchErr := cmd.CombinedOutput(); launchErr != nil {
+					t.Fatalf("%s launch: %v: %s", pair.Harness, launchErr, output)
+				}
+				raw, readErr := os.ReadFile(state)
+				if readErr != nil {
+					t.Fatal(readErr)
+				}
+				if strings.TrimSpace(string(raw)) != strings.TrimSpace(wantBranch+"\n"+sha) {
+					t.Fatalf("%s changed checkout at launch: %q", pair.Harness, raw)
+				}
+			}
+		})
 	}
 }

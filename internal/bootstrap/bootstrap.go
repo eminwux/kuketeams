@@ -113,16 +113,15 @@ func initialConfig(git *config.Git) *config.TeamsConfig {
 		APIVersion: config.APIVersion, Kind: config.Kind,
 		Spec: config.Spec{
 			Git: git,
-			Repositories: []config.Repository{
-				{
-					Name:   "kuketeams",
-					URL:    "https://github.com/eminwux/kuketeams.git",
-					Target: "/home/user/kuketeams",
-					Branch: "main",
-				},
-			},
 			Defaults: config.Defaults{
-				Sources: []config.Source{{Name: "kuketeams", URL: "github.com/eminwux/kuketeams", Branch: "main"}},
+				Sources: []config.Source{
+					{
+						Name:      "kuketeams",
+						URL:       "github.com/eminwux/kuketeams",
+						Branch:    "main",
+						ClonePath: "/home/user/kuketeams",
+					},
+				},
 				Roles: []config.Role{
 					{
 						Name:   "operator",

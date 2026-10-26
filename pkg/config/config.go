@@ -31,11 +31,10 @@ type TeamsConfig struct {
 }
 
 type Spec struct {
-	Git          *Git              `yaml:"git,omitempty"`
-	Defaults     Defaults          `yaml:"defaults"`
-	Repositories []Repository      `yaml:"repositories,omitempty"`
-	Secrets      []SecretBinding   `yaml:"secrets,omitempty"`
-	Parameters   map[string]string `yaml:"parameters,omitempty"`
+	Git        *Git              `yaml:"git,omitempty"`
+	Defaults   Defaults          `yaml:"defaults"`
+	Secrets    []SecretBinding   `yaml:"secrets,omitempty"`
+	Parameters map[string]string `yaml:"parameters,omitempty"`
 }
 
 type Git struct {
@@ -84,6 +83,8 @@ type Source struct {
 	Branch string `yaml:"branch,omitempty"`
 	Tag    string `yaml:"tag,omitempty"`
 	Commit string `yaml:"commit,omitempty"`
+	// ClonePath opts this source into runtime cloning at an absolute in-cell path.
+	ClonePath string `yaml:"clonePath,omitempty"`
 }
 
 type Role struct {
@@ -103,16 +104,6 @@ type Harness struct {
 	Source  string `yaml:"source"`
 	Path    string `yaml:"path"`
 	Default bool   `yaml:"default,omitempty"`
-}
-
-// Repository explicitly binds a runtime repo slot. Source checkouts used to read
-// definitions do not implicitly become workload repositories.
-type Repository struct {
-	Name   string `yaml:"name"`
-	URL    string `yaml:"url"`
-	Target string `yaml:"target"`
-	Branch string `yaml:"branch,omitempty"`
-	Ref    string `yaml:"ref,omitempty"`
 }
 
 // SecretBinding is a declaration, never a credential value. Name is the required

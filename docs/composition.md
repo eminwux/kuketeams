@@ -51,25 +51,21 @@ without retaining that input model or inventing redundant image state.
 
 ## Runtime repository and parameter bindings
 
-A source checkout used to read definitions is separate from a repo cloned inside
-a workload. The selected role source requires an explicit repository binding with
-the **same name** as the source selection. Its `target` supplies the role launch
-path. Bootstrap seeds this public binding for the default root operator:
+A source is the single declaration of its URL and branch/tag/commit. Optional
+`sources[].clonePath` requests a runtime clone at an absolute in-cell destination;
+omission requests no runtime clone. Definition materialization on the host does
+not itself request cloning inside a workload. Bootstrap opts the role source in:
 
 ```yaml
 apiVersion: kuketeams.io/v1
 kind: TeamsConfig
 spec:
-  repositories:
-    - name: kuketeams
-      url: https://github.com/eminwux/kuketeams.git
-      branch: main
-      target: /home/user/kuketeams
   defaults:
     sources:
       - name: kuketeams
         url: github.com/eminwux/kuketeams
         branch: main
+        clonePath: /home/user/kuketeams
     roles:
       - name: operator
         source: kuketeams
@@ -83,22 +79,32 @@ spec:
         default: true
 ```
 
-Existing configurations are preserved by bootstrap. Add `spec.repositories`
-explicitly to configurations created before this contract. Repository names and
-absolute Unix targets must be safe in the copied shell templates. Targets must
-be unique. `branch` and immutable `ref` (tag/commit) are mutually exclusive.
-Callers should bind a compatible runtime revision when supplying pinned source
-filesystems; composition does not compare remote repository contents.
+Existing configurations are preserved by bootstrap. Add `clonePath` to required
+runtime sources in older configurations before composing. Source names used for
+clones and absolute Unix destinations must be safe in copied shell templates;
+clone destinations must be unique. `branch`, `tag`, and `commit` remain mutually
+exclusive. The `github.com/owner/repo` URL shorthand becomes HTTPS in runtime
+config fills; authored declarations retain their spelling.
 
-Additional `Role.spec.needs.repos` require named explicit bindings. There is no
-project URL inferred from the team name or the role/harness definition source.
-Only a role declaring the `project` repo slot gets a project launch directory;
-otherwise the working directory is the selected role tree. Repo targets and
-revisions are bound through `CellConfig.spec.repos`.
+The selected role's source and every `Role.spec.needs.repos` slot must resolve to
+an effective source with `clonePath`. Other effective sources with `clonePath`
+also request clones; sources without it contribute no runtime repository slot.
+Team source overrides replace the whole global list, including clone destinations
+and revisions, and authored `TeamEntry` round trips preserve these declarations.
+No project URL is inferred from the team name or definition source. Only a role
+declaring the `project` repo slot gets a project launch directory; otherwise the
+working directory is the selected role tree.
+
+Destinations are bound in blueprint repository slots; URLs and revisions are
+bound through `CellConfig.spec.repos`. Source branches map to `branch`, and tags
+or commits map to `ref`. All three harness launchers preserve this checkout:
+they do not switch branches or pull newer revisions during launch.
 
 `TeamsConfig.spec.parameters` is a string-to-string map for declared scalar
-parameters. Required parameters without defaults must be supplied. Unknown keys
-fail. `AGENT_NAME` defaults to the full resource identity; legacy `ROLE` parameter
+parameters. Each composition binds only keys its blueprint declares. Required
+parameters without defaults must be supplied. Unknown keys fail against the union
+of selected blueprints; a key declared only by an unselected harness also fails.
+`AGENT_NAME` defaults to the full resource identity; legacy `ROLE` parameter
 requests receive the selected role path. Parameters must not hold credentials:
 use structural secret bindings instead. Undeclared role parameters, unsupported
 mount selectors, missing settings/assets/partials, and unsupported harness

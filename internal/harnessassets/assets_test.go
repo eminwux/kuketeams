@@ -151,7 +151,9 @@ func TestTemplatesWithSiblingPartials(t *testing.T) {
 						projectDir = "/host/project"
 					}
 					data := map[string]any{
+						"makeTarget": harness,
 						"role": map[string]any{
+							"path": "roles/operator", "sourceDir": "/home/user/kuketeams",
 							"name": "fixture",
 						}, "realm": "default", "space": "default", "stack": "default", "image": "fixture:latest",
 						"needs": map[string]any{
@@ -163,6 +165,7 @@ func TestTemplatesWithSiblingPartials(t *testing.T) {
 						"project": map[string]any{
 							"X":           "fixture",
 							"PROJECT_DIR": projectDir,
+							"CLONE_DIR":   "/home/user/example",
 							"NAME":        "example",
 							"AGENTS_REPO": "eminwux/agents",
 						},

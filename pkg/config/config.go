@@ -31,8 +31,10 @@ type TeamsConfig struct {
 }
 
 type Spec struct {
-	Git      *Git     `yaml:"git,omitempty"`
-	Defaults Defaults `yaml:"defaults"`
+	Git        *Git              `yaml:"git,omitempty"`
+	Defaults   Defaults          `yaml:"defaults"`
+	Secrets    []SecretBinding   `yaml:"secrets,omitempty"`
+	Parameters map[string]string `yaml:"parameters,omitempty"`
 }
 
 type Git struct {
@@ -81,6 +83,8 @@ type Source struct {
 	Branch string `yaml:"branch,omitempty"`
 	Tag    string `yaml:"tag,omitempty"`
 	Commit string `yaml:"commit,omitempty"`
+	// ClonePath opts this source into runtime cloning at an absolute in-cell path.
+	ClonePath string `yaml:"clonePath,omitempty"`
 }
 
 type Role struct {
@@ -100,4 +104,49 @@ type Harness struct {
 	Source  string `yaml:"source"`
 	Path    string `yaml:"path"`
 	Default bool   `yaml:"default,omitempty"`
+}
+
+// SecretBinding is a declaration, never a credential value. Name is the required
+// role/harness identifier, independent of the runtime secret and env destination.
+type SecretBinding struct {
+	Name      string        `yaml:"name"`
+	SecretRef SecretRef     `yaml:"secretRef"`
+	EnvName   string        `yaml:"envName"`
+	Source    *SecretSource `yaml:"source,omitempty"`
+}
+
+type SecretRef struct {
+	Name  string `yaml:"name"`
+	Realm string `yaml:"realm"`
+	Space string `yaml:"space,omitempty"`
+	Stack string `yaml:"stack,omitempty"`
+	Cell  string `yaml:"cell,omitempty"`
+}
+
+// SecretSource declares where application may obtain bytes if the runtime secret
+// is missing. Composition never reads either source or carries resolved bytes.
+type SecretSource struct {
+	Env  string `yaml:"env,omitempty"`
+	File string `yaml:"file,omitempty"`
+}
+
+// Team is authored input. Omitted selections inherit global defaults.
+type Team struct {
+	APIVersion string   `yaml:"apiVersion"`
+	Kind       string   `yaml:"kind"`
+	Metadata   Metadata `yaml:"metadata"`
+	Spec       Defaults `yaml:"spec"`
+}
+
+type Metadata struct {
+	Name string `yaml:"name"`
+}
+
+// TeamEntry records the accepted authored declaration, not effective defaults or
+// resolved image references. It can be recomposed without the original input.
+type TeamEntry struct {
+	APIVersion string   `yaml:"apiVersion"`
+	Kind       string   `yaml:"kind"`
+	Metadata   Metadata `yaml:"metadata"`
+	Spec       Defaults `yaml:"spec"`
 }

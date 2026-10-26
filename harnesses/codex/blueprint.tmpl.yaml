@@ -136,26 +136,22 @@ spec:
           allowedSigners: {{ $home }}/.ssh/allowed_signers
         repos:
           {{- range .needs.repos }}
-          {{- if or (ne . "project") $.project.PROJECT_DIR }}
           - name: {{ . }}
             url: {{ template "repo_url" . }}
             target: {{ $home }}/{{ if eq . "project" }}{{ $.project.NAME }}{{ else }}{{ template "repo_target" . }}{{ end }}
             branch: main
             required: true
           {{- end }}
-          {{- end }}
         tty:
           prompt: "codex> "
           onInit:
             - script: |
                 set -euo pipefail
-                make -C {{ $home }}/agents codex ROLE={{ .role.name }}
+                make -C {{ .role.sourceDir }} {{ .makeTarget }} ROLE={{ .role.path }}
                 {{- if .project.PROJECT_DIR }}
-                cd {{ $home }}/{{ .project.NAME }}
-                git checkout main
-                git pull --ff-only
+                cd {{ .project.CLONE_DIR }}
                 {{- else }}
-                cd {{ $home }}/agents
+                cd {{ .role.sourceDir }}/{{ .role.path }}
                 {{- end }}
                 {{- if $isRoot }}
                 sandbox=danger-full-access

@@ -70,7 +70,14 @@ func TestFirstRun(t *testing.T) {
 				SigningKey: "~/.ssh/operator.pub", Sign: []string{"commits", "tags"}, AllowedSigners: "~/allowed_signers",
 			},
 			Defaults: config.Defaults{
-				Sources: []config.Source{{Name: "kuketeams", URL: "github.com/eminwux/kuketeams", Branch: "main"}},
+				Sources: []config.Source{
+					{
+						Name:      "kuketeams",
+						URL:       "github.com/eminwux/kuketeams",
+						Branch:    "main",
+						ClonePath: "/home/user/kuketeams",
+					},
+				},
 				Roles: []config.Role{
 					{
 						Name:   "operator",

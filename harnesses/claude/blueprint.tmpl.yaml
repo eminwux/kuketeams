@@ -186,12 +186,12 @@ spec:
             - script: |
                 [ -f {{ $home }}/.claude.json ] || cp {{ $home }}/.claude.json.seed {{ $home }}/.claude.json 2>/dev/null || echo '{}' > {{ $home }}/.claude.json
             - script: |
-                make -C {{ $home }}/agents claude ROLE=${ROLE}
+                make -C {{ .role.sourceDir }} {{ .makeTarget }} ROLE={{ .role.path }}
             - script: |
                 {{- if .project.PROJECT_DIR }}
-                cd {{ $home }}/{{ .project.NAME }}
-                git checkout main
-                git pull
+                cd {{ .project.CLONE_DIR }}
+                {{- else }}
+                cd {{ .role.sourceDir }}/{{ .role.path }}
                 {{- end }}
                 if [ -n "$PROMPT" ]; then
                   # Supervisor loop. This shell is the work container's PID 1, so
@@ -219,8 +219,8 @@ spec:
                     turnlog="/tmp/claude-turn-$turn.jsonl"
                     if [ "$resume" -eq 0 ]; then
                       claude \
-                        --settings {{ $home }}/agents/${ROLE}/{{ .harnesses.claude.settings }} \
-                        --add-dir {{ $home }}/agents/${ROLE} \
+                        --settings {{ .role.sourceDir }}/{{ .role.path }}/{{ .harnesses.claude.settings }} \
+                        --add-dir {{ .role.sourceDir }}/{{ .role.path }} \
                         --session-id "$SID" \
                         --verbose \
                         --output-format stream-json \
@@ -228,8 +228,8 @@ spec:
                         --print "$next_prompt" </dev/null | tee "$turnlog"
                     else
                       claude \
-                        --settings {{ $home }}/agents/${ROLE}/{{ .harnesses.claude.settings }} \
-                        --add-dir {{ $home }}/agents/${ROLE} \
+                        --settings {{ .role.sourceDir }}/{{ .role.path }}/{{ .harnesses.claude.settings }} \
+                        --add-dir {{ .role.sourceDir }}/{{ .role.path }} \
                         --resume "$SID" \
                         --verbose \
                         --output-format stream-json \
@@ -274,7 +274,7 @@ spec:
                   exit 0
                 else
                   claude \
-                    --settings {{ $home }}/agents/${ROLE}/{{ .harnesses.claude.settings }} \
-                    --add-dir {{ $home }}/agents/${ROLE}
+                    --settings {{ .role.sourceDir }}/{{ .role.path }}/{{ .harnesses.claude.settings }} \
+                    --add-dir {{ .role.sourceDir }}/{{ .role.path }}
                   exit $?
                 fi

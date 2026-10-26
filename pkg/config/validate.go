@@ -57,6 +57,9 @@ func Validate(cfg *TeamsConfig) error {
 	if err := validateGit(cfg.Spec.Git); err != nil {
 		return err
 	}
+	if err := validateBindings(&cfg.Spec); err != nil {
+		return err
+	}
 	return validateDefaults(&cfg.Spec.Defaults)
 }
 
@@ -102,6 +105,7 @@ func validateGit(g *Git) error {
 }
 
 func validateSources(list []Source, sources map[string]bool) error {
+	targets := map[string]bool{}
 	for i, source := range list {
 		field := fmt.Sprintf("spec.defaults.sources[%d]", i)
 		if err := unique(field+".name", source.Name, sources); err != nil {
@@ -109,6 +113,15 @@ func validateSources(list []Source, sources map[string]bool) error {
 		}
 		if err := required(field+".url", source.URL); err != nil {
 			return err
+		}
+		if source.ClonePath != "" {
+			if !ValidName(source.Name) || !SafePath(source.ClonePath) {
+				return fmt.Errorf("%s.clonePath: require a safe source name and absolute in-cell path", field)
+			}
+			if targets[source.ClonePath] {
+				return fmt.Errorf("%s.clonePath: duplicate clone destination", field)
+			}
+			targets[source.ClonePath] = true
 		}
 		count := 0
 		for _, selector := range []struct{ name, value string }{

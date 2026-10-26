@@ -350,7 +350,7 @@ func assertRootResources(t *testing.T, result *compose.Result) {
 		p.Blueprint.Spec.Prefix != p.Config.Metadata.Name || p.Config.Spec.Blueprint.Name != p.Config.Metadata.Name {
 		t.Fatal("unstable identity")
 	}
-	if p.Image.Ref != "codex" || p.Image.Image != "ghcr.io/eminwux/kuketeams/codex:v0.1.0" {
+	if p.Image.Ref != "codex" || p.Image.Image != "ghcr.io/eminwux/kuketeams/codex:v0.2.0" {
 		t.Fatalf("image = %+v", p.Image)
 	}
 	c := p.Blueprint.Spec.Cell.Containers[0]

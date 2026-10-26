@@ -40,42 +40,42 @@ spec:
   images:
     - ref: claude
       harness: claude
-      image: ghcr.io/eminwux/kuketeams/claude:v0.1.0
+      image: ghcr.io/eminwux/kuketeams/claude:v0.2.0
       build: { context: harnesses/claude, dockerfile: Dockerfile }
       capabilities: [claude, git, gh, go, node, make]
 
     - ref: claude-android
       harness: claude
-      image: ghcr.io/eminwux/kuketeams/claude-android:v0.1.0
+      image: ghcr.io/eminwux/kuketeams/claude-android:v0.2.0
       build: { context: harnesses/claude, dockerfile: Dockerfile.android }
       capabilities: [claude, git, gh, go, node, make, android]
 
     - ref: claude-root
       harness: claude
-      image: ghcr.io/eminwux/kuketeams/claude-root:v0.1.0
+      image: ghcr.io/eminwux/kuketeams/claude-root:v0.2.0
       build: { context: harnesses/claude, dockerfile: Dockerfile.root }
       capabilities: [claude, git, gh, go, node, make, root]
 
     - ref: codex
       harness: codex
-      image: ghcr.io/eminwux/kuketeams/codex:v0.1.0
+      image: ghcr.io/eminwux/kuketeams/codex:v0.2.0
       build: { context: harnesses/codex, dockerfile: Dockerfile }
       capabilities: [codex, git, gh, go, node, make]
 
     - ref: codex-root
       harness: codex
-      image: ghcr.io/eminwux/kuketeams/codex-root:v0.1.0
+      image: ghcr.io/eminwux/kuketeams/codex-root:v0.2.0
       build: { context: harnesses/codex, dockerfile: Dockerfile.root }
       capabilities: [codex, git, gh, go, node, make, root]
 
     - ref: opencode
       harness: opencode
-      image: ghcr.io/eminwux/kuketeams/opencode:v0.1.0
+      image: ghcr.io/eminwux/kuketeams/opencode:v0.2.0
       build: { context: harnesses/opencode, dockerfile: Dockerfile }
       capabilities: [opencode, git, gh, go, node, make]
 
     - ref: opencode-root
       harness: opencode
-      image: ghcr.io/eminwux/kuketeams/opencode-root:v0.1.0
+      image: ghcr.io/eminwux/kuketeams/opencode-root:v0.2.0
       build: { context: harnesses/opencode, dockerfile: Dockerfile.root }
       capabilities: [opencode, git, gh, go, node, make, root]

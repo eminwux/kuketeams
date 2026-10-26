@@ -75,22 +75,25 @@ The arm64 output is cross-built and structurally checked; it is not runtime-test
 Tests run natively, with the race detector, before either CI build starts.
 
 The [Binary CI workflow](https://github.com/eminwux/kuketeams/actions/workflows/build.yaml)
-runs on PRs targeting `main`, pushes to `main`, and manual dispatch, with read-only
-repository permissions. Open a successful run and download its artifact for your
+runs tests on PRs targeting `main`, pushes to `main`, and manual dispatch, with
+read-only repository permissions. Distribution builds run only when called by
+the release workflow after it verifies a version tag's commit belongs to `main`.
+Open a successful release run and download its artifact for your
 architecture: `kuketeams-linux-amd64-` or `kuketeams-linux-arm64-` followed by the
 first 12 characters of the **built** commit SHA. Each artifact contains exactly
 the corresponding binary, its `.sha256` file, and `build-info.json`. Artifacts
 expire after **14 days**. CI downloads each uploaded artifact and repeats its
 checks, including native help/version, to validate the upload/download path.
 
-These are development Actions artifacts. PR artifacts
-may build GitHub's merge commit; `build-info.json` identifies the actual source,
-and the CLI reports `dev-` followed by that commit's first 12 characters. Binary
-CI does not publish harness/container images; image publication is a separate
-delivery step.
+`build-info.json` identifies the tagged source commit, and the CLI reports the
+release tag as its version. PRs and untagged pushes do not build distributions
+or publish images or releases.
 
-For release tags, the image publication workflow calls Binary CI with the tag as
-the CLI version. After tests, both binary builds, and image publication succeed,
+For release tags, a read-only source gate fetches `main` and requires the tagged
+commit to be an ancestor of its current tip. Tags on unmerged branches fail
+before any binary build or image publication. The image publication workflow
+then calls Binary CI with the tag as the CLI version. After tests, both binary
+builds, and image publication succeed,
 it creates a [GitHub Release](https://github.com/eminwux/kuketeams/releases) with
 generated change notes, source commit, and published harness image references.
 The six attached assets are the Linux amd64 and arm64 binaries, their `.sha256`

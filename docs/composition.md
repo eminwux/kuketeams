@@ -189,9 +189,14 @@ silently rendering `<no value>`.
 `Result.Pairs` follows role order then harness order. Each pair exposes:
 
 - `Blueprint` and `Config`: the existing public kukeon `v1beta1` types, using
-  `<team>-<role-selection>-<harness>` names, matching scope and `kukeon.io/team`
-  labels. Defaults are realm/space/stack `default`; initial config identity is
-  `root-operator-codex`.
+  `<team>-<role-selection>-<harness>` names, escaping each component's hyphens
+  by doubling them before joining with single hyphens. Thus team `root-a` /
+  role `operator` yields `root--a-operator-codex`, while team `root` / role
+  `a-operator` yields `root-a--operator-codex`. Component boundaries remain
+  unambiguous even with repeated hyphens. Blueprint/config names, blueprint
+  references, and cell prefixes use this identity; `kukeon.io/team` labels retain
+  the authored team name. Defaults are realm/space/stack `default`; the initial
+  config identity remains `root-operator-codex`.
 - `Image`: the resolved catalog entry, suitable for a later build/apply consumer.
 - `Secrets`: required identifier, container, explicit destination, runtime
   name/scope, and optional creation-source declaration. No credential bytes.
@@ -200,8 +205,12 @@ silently rendering `<no value>`.
 
 `Result.Entry` is the accepted declaration candidate. `result.MarshalYAML()`
 returns only all blueprints followed by all configs for #13's apply operation.
-State-volume names include team ownership and own-scope references carry
-`ensure: true`, matching the existing daemon auto-provisioning primitive.
+Default harness state volumes use the same resource identity. Other template
+volume slots append the escaped slot name to the escaped team/role/harness
+components, so project-specific state also stays isolated between teams and role
+selections. Existing explicit `volumeRef` bindings remain explicit references.
+Own-scope volume slots carry `ensure: true`, matching the existing daemon
+auto-provisioning primitive.
 
 Preflight covers strict document shape, selection/reference resolution, role
 assets, template/partial execution, image capabilities, parameter completeness,

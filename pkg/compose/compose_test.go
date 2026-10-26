@@ -29,6 +29,7 @@ import (
 	"testing"
 	"testing/fstest"
 
+	api "github.com/eminwux/kukeon/pkg/api/model/v1beta1"
 	"github.com/eminwux/kuketeams/internal/bootstrap"
 	"github.com/eminwux/kuketeams/pkg/compose"
 	"github.com/eminwux/kuketeams/pkg/config"
@@ -611,6 +612,75 @@ func TestLaunchPreservesSourceRevision(t *testing.T) {
 				}
 				if strings.TrimSpace(string(raw)) != strings.TrimSpace(wantBranch+"\n"+sha) {
 					t.Fatalf("%s changed checkout at launch: %q", pair.Harness, raw)
+				}
+			}
+		})
+	}
+}
+
+func TestResourceNamesIsolateTeamsAndSelections(t *testing.T) {
+	for _, project := range []bool{false, true} {
+		scenario := "role-state"
+		if project {
+			scenario = "project-state"
+		}
+		t.Run(scenario, func(t *testing.T) {
+			cfg, opts := fixture(t)
+			allHarnesses(cfg)
+			cfg.Spec.Secrets = []config.SecretBinding{routerBinding()}
+			if project {
+				source := copiedSource(t)
+				source["roles/operator/role.yaml"].Data = bytes.ReplaceAll(
+					source["roles/operator/role.yaml"].Data,
+					[]byte("  needs:"), []byte("  needs:\n    repos: [project]"))
+				opts.Sources["kuketeams"] = source
+				cfg.Spec.Defaults.Sources = append(cfg.Spec.Defaults.Sources, config.Source{
+					Name: "project", URL: "https://example.test/work", Branch: "topic", ClonePath: "/home/user/work",
+				})
+			}
+			resources, volumes := map[string]string{}, map[string]string{}
+			for _, selection := range []struct{ team, role string }{
+				{"root-a", "operator"},
+				{"root", "a-operator"},
+				{"root--a", "operator"},
+				{"root", "a--operator"},
+				{"root", "operator"},
+				{"root.a", "operator"},
+				{"root", "a.operator"},
+			} {
+				team := config.Root()
+				team.Metadata.Name = selection.team
+				cfg.Spec.Defaults.Roles[0].Name = selection.role
+				result, err := compose.Compose(cfg, team, opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				for _, pair := range result.Pairs {
+					owner := selection.team + "/" + selection.role + "/" + pair.Harness
+					name := pair.Config.Metadata.Name
+					if previous, exists := resources[name]; exists {
+						t.Fatalf("%s and %s collide on resource %q", previous, owner, name)
+					}
+					resources[name] = owner
+					if !config.ValidName(name) || pair.Blueprint.Metadata.Name != name ||
+						pair.Blueprint.Spec.Prefix != name || pair.Config.Spec.Blueprint.Name != name {
+						t.Fatalf("inconsistent resource identity for %s", owner)
+					}
+					if pair.Config.Metadata.Labels[api.LabelTeam] != selection.team ||
+						pair.Blueprint.Metadata.Labels[api.LabelTeam] != selection.team {
+						t.Fatalf("authored team label changed for %s", owner)
+					}
+					for _, container := range pair.Blueprint.Spec.Cell.Containers {
+						for _, volume := range container.Volumes {
+							if volume.Kind != api.VolumeKindVolume || volume.VolumeRef != nil {
+								continue
+							}
+							if previous, exists := volumes[volume.Source]; exists && previous != owner {
+								t.Fatalf("%s and %s share state volume %q", previous, owner, volume.Source)
+							}
+							volumes[volume.Source] = owner
+						}
+					}
 				}
 			}
 		})

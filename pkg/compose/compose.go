@@ -202,7 +202,7 @@ func composePair(
 	if err != nil {
 		return Pair{}, err
 	}
-	name := team + "-" + selection.Name + "-" + hsel.Name
+	name := resourceName(team, selection.Name, hsel.Name)
 	bp.Metadata = api.CellBlueprintMetadata{
 		Name: name, Realm: opts.Scope.Realm, Space: opts.Scope.Space, Stack: opts.Scope.Stack,
 		Labels: map[string]string{api.LabelTeam: team},
@@ -233,6 +233,16 @@ func composePair(
 	}
 
 	return pair, nil
+}
+
+// resourceName escapes hyphens within components before joining them with single
+// hyphens. Validated team/role/harness names start and end in alphanumerics, so
+// component separators cannot be confused with escaped runs inside a name.
+func resourceName(parts ...string) string {
+	for i, part := range parts {
+		parts[i] = strings.ReplaceAll(part, "-", "--")
+	}
+	return strings.Join(parts, "-")
 }
 
 func load(source fs.FS, filename string, out any) error {

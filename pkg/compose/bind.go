@@ -64,7 +64,7 @@ func bind(
 				if mount.Source == role.Metadata.Name+"-"+p.Harness {
 					mount.Source = cc.Metadata.Name
 				} else {
-					mount.Source = team + "-" + mount.Source
+					mount.Source = resourceName(team, selection.Name, p.Harness, mount.Source)
 				}
 				mount.Ensure = true
 			}

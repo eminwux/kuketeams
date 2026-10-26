@@ -51,12 +51,17 @@ func fixtureGit(t *testing.T, dir string, args ...string) string {
 // No provider, real identity, network host, or recorded credential is involved.
 func setupAdd(t *testing.T) (AddOptions, string) {
 	t.Helper()
+	return setupAddObjectFormat(t, "sha1")
+}
+
+func setupAddObjectFormat(t *testing.T, objectFormat string) (AddOptions, string) {
+	t.Helper()
 	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
 	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
 	t.Setenv("GIT_SSH", "")
 	t.Setenv("GIT_SSH_VARIANT", "ssh")
 	repo := t.TempDir()
-	fixtureGit(t, repo, "init", "--initial-branch=trunk")
+	fixtureGit(t, repo, "init", "--initial-branch=trunk", "--object-format="+objectFormat)
 	if err := os.WriteFile(filepath.Join(repo, "README"), []byte("project fixture"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -163,6 +168,36 @@ func TestAddNativeSSHRevisionsAndRepeat(t *testing.T) {
 			if err != nil || len(entries) != 1 || opts.Client.(*fakeClient).applies != 2 {
 				t.Fatal("repeat add duplicated entry or leaked stage")
 			}
+		})
+	}
+}
+
+func TestAddNativeSSHCommitObjectFormats(t *testing.T) {
+	for _, format := range []string{"sha1", sha256ObjectFormat} {
+		t.Run(format, func(t *testing.T) {
+			opts, commit := setupAddObjectFormat(t, format)
+			opts.Commit = commit
+			// A caller's default must not override the selected commit's format.
+			otherFormat := sha256ObjectFormat
+			if format == sha256ObjectFormat {
+				otherFormat = "sha1"
+			}
+			t.Setenv("GIT_DEFAULT_HASH", otherFormat)
+			sources, cleanup, err := materializeSources(t.Context(), config.Defaults{
+				Sources: []config.Source{{Name: "project", URL: opts.Source, Commit: commit}},
+			}, true)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer cleanup()
+			raw, err := fs.ReadFile(sources["project"], "README")
+			if err != nil || string(raw) != "project fixture" {
+				t.Fatalf("commit checkout content = %q, error = %v", raw, err)
+			}
+			if _, err = Add(t.Context(), opts); err != nil {
+				t.Fatal(err)
+			}
+			assertAcceptedAdd(t, opts, "commit", commit)
 		})
 	}
 }

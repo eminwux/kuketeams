@@ -29,6 +29,11 @@ import (
 	"github.com/eminwux/kuketeams/pkg/config"
 )
 
+const (
+	sha256ObjectFormat = "sha256"
+	sha256CommitLength = 64
+)
+
 // Fetch only sources used for definitions, at their declared revision. Temporary
 // checkouts do not become runtime clone paths and are removed after composition.
 func materialize(ctx context.Context, d config.Defaults) (map[string]fs.FS, func(), error) {
@@ -72,8 +77,14 @@ func materializeSources(ctx context.Context, d config.Defaults, project bool) (m
 		if source.Tag != "" {
 			ref = "refs/tags/" + source.Tag
 		}
+		// Full commit IDs identify the repository's object format. Pin it so
+		// Git's configured default cannot select an incompatible hash format.
+		objectFormat := "sha1"
+		if len(source.Commit) == sha256CommitLength {
+			objectFormat = sha256ObjectFormat
+		}
 		commands := [][]string{
-			{"init", "--quiet", dir},
+			{"init", "--quiet", "--object-format=" + objectFormat, dir},
 			{"-C", dir, "remote", "add", "--", "origin", url},
 			{"-C", dir, "fetch", "--quiet", "--depth=1", "--", "origin", ref},
 			{"-C", dir, "checkout", "--quiet", "--detach", "FETCH_HEAD"},

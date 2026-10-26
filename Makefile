@@ -22,3 +22,9 @@ test-harnesses:
 	python3 -m unittest discover -s harnesses/tests -v
 	MODE=check PLATFORMS=linux/amd64,linux/arm64 ./harnesses/build-images.sh --print | python3 harnesses/tests/check_plan.py
 	MODE=check TAG=v0.0.0-test PLATFORMS=linux/amd64,linux/arm64 ./harnesses/build-images.sh --print | python3 harnesses/tests/check_plan.py
+
+# Match the public harness makeTarget names; role assets remain self-contained.
+ROLE ?= roles/operator
+.PHONY: claude codex opencode-openrouter
+claude codex opencode-openrouter:
+	$(MAKE) -C '$(ROLE)' '$@'

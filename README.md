@@ -255,3 +255,12 @@ These commands compose and apply the development team's blueprints and configs;
 they do not start agents. This roster is for the existing development workflow.
 The future standalone `kuketeams apply` command will consume the new `Team`
 format described in the epic.
+
+## Basic operator role
+
+[`roles/operator`](roles/operator/README.md) provides the kukeon operator policy,
+per-harness materialization adapters, and the initial `create-cell-config` skill.
+The default `init` role path resolves to this self-contained tree. The skill
+separates draft YAML from applied configuration and never starts a cell implicitly.
+See the role guide for runtime access, selected-harness authentication, installation,
+and verification limits. Root-team composition and launch remain later epic steps.

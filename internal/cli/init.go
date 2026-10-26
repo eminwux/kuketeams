@@ -22,7 +22,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/eminwux/kuketeams/internal/bootstrap"
+	"github.com/eminwux/kuketeams/internal/initialize"
 	"github.com/spf13/cobra"
 )
 
@@ -30,42 +30,56 @@ import (
 // injected functions let tests exercise outcomes without changing operator HOME.
 func newInitCommand(
 	homeDir func() (string, error),
-	run func(context.Context, bootstrap.Options) (bootstrap.Result, error),
+	run func(context.Context, initialize.Options) (initialize.Result, error),
 ) *cobra.Command {
-	return &cobra.Command{
+	var host, configuration string
+	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Initialize operator configuration only",
-		Long:  "Initialize ~/.kuke/kuketeams.yaml with default selections and available global Git settings.\nExisting valid configuration is preserved. Edit this file to customize selections.\nThis initializes configuration only; no team is created or registered.",
+		Short: "Apply and register the root operator team",
+		Long:  "Initialize ~/.kuke/kuketeams.yaml, fetch selected definitions, and apply the root operator team to kukeond.\nExisting valid configuration is preserved. Registration is saved only after all resources succeed.\nNo cells are created or started. The daemon and parent runtime scope must already exist.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			home, err := homeDir()
 			if err != nil {
 				return fmt.Errorf("resolve operator home directory: %w", err)
 			}
-			result, err := run(cmd.Context(), bootstrap.Options{Root: filepath.Join(home, ".kuke")})
-			if err != nil {
-				return err
-			}
-			for _, diagnostic := range result.Diagnostics {
+			result, runErr := run(
+				cmd.Context(),
+				initialize.Options{
+					Root:          filepath.Join(home, ".kuke"),
+					Home:          home,
+					Host:          host,
+					Configuration: configuration,
+				},
+			)
+			for _, diagnostic := range result.Bootstrap.Diagnostics {
 				if _, err = fmt.Fprintln(cmd.ErrOrStderr(), diagnostic); err != nil {
 					return err
 				}
 			}
+			if runErr != nil {
+				return runErr
+			}
 			status := "Existing valid configuration"
-			if result.Created {
+			if result.Bootstrap.Created {
 				status = "Created configuration"
 			}
 			_, err = fmt.Fprintf(
 				cmd.OutOrStdout(),
-				"%s: %s\nConfiguration only; no team has been created or registered.\n",
+				"%s: %s\nApplied %d resources; registered root team: %s\nNo cells created or started.\n",
 				status,
-				result.Path,
+				result.Bootstrap.Path,
+				result.Resources, result.EntryPath,
 			)
 			return err
 		},
 	}
+	cmd.Flags().StringVar(&host, "host", "", "kukeond Unix endpoint (overrides KUKEON_HOST and kuke.yaml)")
+	cmd.Flags().
+		StringVar(&configuration, "configuration", "", "kuke ClientConfiguration path (default KUKE_CONFIGURATION or ~/.kuke/kuke.yaml)")
+	return cmd
 }
 
 func defaultInitCommand() *cobra.Command {
-	return newInitCommand(os.UserHomeDir, bootstrap.Run)
+	return newInitCommand(os.UserHomeDir, initialize.Run)
 }

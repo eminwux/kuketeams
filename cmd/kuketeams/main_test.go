@@ -46,8 +46,8 @@ func TestExecutable(t *testing.T) {
 			}{
 				{[]string{"--help"}, "Usage:", false},
 				{[]string{"help"}, "Usage:", false},
-				{[]string{"init", "--help"}, "configuration only", false},
-				{[]string{"help", "init"}, "configuration only", false},
+				{[]string{"init", "--help"}, "No cells are created or started", false},
+				{[]string{"help", "init"}, "No cells are created or started", false},
 				{[]string{"init", "--build"}, "unknown flag", true},
 				{[]string{"version"}, "kuketeams " + version + "\n", false},
 				{[]string{"unknown"}, "unknown command", true},
@@ -95,9 +95,10 @@ func TestInitExecutable(t *testing.T) {
 	home := t.TempDir()
 	// Run outside HOME and outside a project checkout; PATH isolates missing Git.
 	cwd := t.TempDir()
-	for _, status := range []string{"Created configuration", "Existing valid configuration", "invalid"} {
-		if status == "invalid" {
-			if err := os.WriteFile(filepath.Join(home, ".kuke", "kuketeams.yaml"), []byte("kind: Wrong\n"), 0o600); err != nil {
+	for _, invalid := range []bool{false, false, true} {
+		path := filepath.Join(home, ".kuke", "kuketeams.yaml")
+		if invalid {
+			if err := os.WriteFile(path, []byte("kind: Wrong\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}
@@ -107,24 +108,18 @@ func TestInitExecutable(t *testing.T) {
 		var stdout, stderr bytes.Buffer
 		command.Stdout, command.Stderr = &stdout, &stderr
 		err := command.Run()
-		path := filepath.Join(home, ".kuke", "kuketeams.yaml")
-		if status == "invalid" {
-			if err == nil || !strings.Contains(stderr.String(), path) || stdout.Len() != 0 {
-				t.Fatalf("error=%v stdout=%q stderr=%q", err, &stdout, &stderr)
-			}
-			continue
+		want := "materialize source"
+		if invalid {
+			want = path
 		}
-		if err != nil || !strings.Contains(stdout.String(), status+": "+path) ||
-			!strings.Contains(stdout.String(), "no team has been created or registered") {
-			t.Fatalf("error=%v stdout=%q stderr=%q", err, &stdout, &stderr)
+		if err == nil || !strings.Contains(stderr.String(), want) || stdout.Len() != 0 {
+			t.Fatalf("invalid=%v error=%v stdout=%q stderr=%q", invalid, err, &stdout, &stderr)
 		}
-		if status == "Created configuration" && !strings.Contains(stderr.String(), "Git discovery skipped") {
-			t.Fatalf("missing discovery diagnostic: %q", &stderr)
-		}
-		if status == "Existing valid configuration" && stderr.Len() != 0 {
-			t.Fatalf("rerun diagnostics = %q", &stderr)
+		if _, err = os.Stat(filepath.Join(home, ".kuke", "kuketeam.d", "root.yaml")); !os.IsNotExist(err) {
+			t.Fatal("registered before successful application")
 		}
 	}
+
 	entries, err := os.ReadDir(cwd)
 	if err != nil || len(entries) != 0 {
 		t.Fatalf("working directory changed: %v, %v", entries, err)

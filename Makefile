@@ -28,3 +28,8 @@ ROLE ?= roles/operator
 .PHONY: claude codex opencode-openrouter
 claude codex opencode-openrouter:
 	@sh scripts/materialize-role.sh '$(ROLE)' '$@'
+
+.PHONY: test-integration
+test-integration:
+	@test -n "$(KUKETEAMS_INTEGRATION_HOST)" || { echo 'Set KUKETEAMS_INTEGRATION_HOST to a disposable kukeond Unix endpoint' >&2; exit 1; }
+	$(GO) test -race ./internal/initialize -run '^TestKukeondIntegration$$' -count=1 -v

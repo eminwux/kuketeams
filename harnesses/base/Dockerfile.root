@@ -30,8 +30,9 @@ RUN apt-get update \
 
 # A `user` account still exists in root cells so files dropped to /home/user
 # can carry sensible ownership when a leaf drops privilege.
+# usermod rejects root while build PID 1 uses it; edit only its image home field.
 RUN useradd --create-home --home-dir /home/user --shell /bin/bash user \
- && usermod --home /home/user root
+ && sed -i '/^root:/s|:/root:|:/home/user:|' /etc/passwd
 
 ENV HOME=/home/user
 USER root

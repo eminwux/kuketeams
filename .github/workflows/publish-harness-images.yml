@@ -13,6 +13,11 @@ env:
   PLATFORMS: linux/amd64,linux/arm64
 
 jobs:
+  binaries:
+    uses: ./.github/workflows/build.yaml
+    with:
+      version: ${{ github.ref_name }}
+
   publish:
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
@@ -47,3 +52,40 @@ jobs:
         env:
           TAG: ${{ github.ref_name }}
         run: make -C harnesses images MODE=push
+
+  release:
+    name: Publish GitHub Release
+    needs: [binaries, publish]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: kuketeams-linux-*
+          path: ${{ runner.temp }}/release-downloads
+      - name: Verify and stage release assets and summary
+        env:
+          DOWNLOADS: ${{ runner.temp }}/release-downloads
+          OUTPUT: ${{ runner.temp }}/release
+        run: bash scripts/prepare-release.sh "$DOWNLOADS" "$OUTPUT" "$GITHUB_REF_NAME" "$GITHUB_SHA"
+      - name: Create release with generated change notes and assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          OUTPUT: ${{ runner.temp }}/release
+        run: |
+          flags=()
+          if [[ "$GITHUB_REF_NAME" == *-* ]]; then
+            flags+=(--prerelease)
+          fi
+          gh release create "$GITHUB_REF_NAME" "$OUTPUT"/assets/* \
+            --verify-tag --title "$GITHUB_REF_NAME" --generate-notes \
+            --notes "$(cat "$OUTPUT/notes.md")" "${flags[@]}"

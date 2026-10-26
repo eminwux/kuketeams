@@ -83,11 +83,21 @@ the corresponding binary, its `.sha256` file, and `build-info.json`. Artifacts
 expire after **14 days**. CI downloads each uploaded artifact and repeats its
 checks, including native help/version, to validate the upload/download path.
 
-These are development Actions artifacts, not tagged GitHub Releases. PR artifacts
+These are development Actions artifacts. PR artifacts
 may build GitHub's merge commit; `build-info.json` identifies the actual source,
 and the CLI reports `dev-` followed by that commit's first 12 characters. Binary
 CI does not publish harness/container images; image publication is a separate
 delivery step.
+
+For release tags, the image publication workflow calls Binary CI with the tag as
+the CLI version. After tests, both binary builds, and image publication succeed,
+it creates a [GitHub Release](https://github.com/eminwux/kuketeams/releases) with
+generated change notes, source commit, and published harness image references.
+The six attached assets are the Linux amd64 and arm64 binaries, their `.sha256`
+files, and `kuketeams-linux-<arch>.build-info.json` metadata files. Tags containing
+a prerelease suffix produce GitHub prereleases. A failed dependency prevents
+release publication; existing tags must be released separately because their
+workflow is fixed at the tagged commit.
 
 For example, extract the Linux amd64 artifact into an empty directory, open a
 terminal there, and verify it before use:

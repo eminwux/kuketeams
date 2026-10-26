@@ -22,7 +22,7 @@ def main():
     assert Path.home() == home == Path.cwd()
     assert pwd.getpwnam("user").pw_uid != 0
     run("bash", "-lc", 'test "$HOME" = /home/user && test ~ = /home/user')
-    for state in (".claude", ".codex", ".local/state", ".cache", ".config"):
+    for state in (".claude", ".codex", ".local/state", ".cache", ".config", ".android", ".java", ".npm"):
         directory = home / state
         directory.mkdir(parents=True, exist_ok=True)
         probe = directory / "kuketeams-smoke"

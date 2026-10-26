@@ -35,7 +35,7 @@ RUN mkdir -p ${ANDROID_HOME}/cmdline-tools \
         "platforms;android-35" \
         "build-tools;35.0.0" \
         "platform-tools" \
- && chown -R user:user ${ANDROID_HOME}
+ && chown -R user:user ${ANDROID_HOME} /home/user
 
 USER user
 

@@ -33,3 +33,8 @@ claude codex opencode-openrouter:
 test-integration:
 	@test -n "$(KUKETEAMS_INTEGRATION_HOST)" || { echo 'Set KUKETEAMS_INTEGRATION_HOST to a disposable kukeond Unix endpoint' >&2; exit 1; }
 	$(GO) test -race ./internal/initialize -run '^TestKukeondIntegration$$' -count=1 -v
+
+.PHONY: test-remote-operator
+test-remote-operator: kuketeams
+	@test -n "$(KUKETEAMS_REMOTE_HOST)" || { echo 'Set KUKETEAMS_REMOTE_HOST explicitly; see docs/remote-operator-check.md' >&2; exit 1; }
+	$(GO) test -race ./internal/launchcheck -run '^TestRemoteOperator$$' -count=1 -v -timeout 10m

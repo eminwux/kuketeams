@@ -106,3 +106,5 @@ Use a disposable kukeond with existing `default/default/default` scope metadata.
 The check uses a unique `init-check-*` team and deletes only its generated
 blueprints/configs on cleanup. It does not test image pulls, live harness
 credentials, or agent launch; those belong to the subsequent launch step.
+Use the separate [remote operator check](remote-operator-check.md) to exercise
+that launch with a published image and preconfigured authentication.

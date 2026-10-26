@@ -25,6 +25,7 @@ import (
 	"testing"
 
 	"github.com/eminwux/kuketeams/internal/bootstrap"
+	"github.com/eminwux/kuketeams/internal/initialize"
 )
 
 func TestInitOutcomes(t *testing.T) {
@@ -40,17 +41,21 @@ func TestInitOutcomes(t *testing.T) {
 			path := filepath.Join(home, ".kuke", "kuketeams.yaml")
 			sentinel := errors.New("read configuration " + path + ": permission denied")
 			cmd := newInitCommand(func() (string, error) { return home, nil },
-				func(ctx context.Context, opts bootstrap.Options) (bootstrap.Result, error) {
+				func(ctx context.Context, opts initialize.Options) (initialize.Result, error) {
 					if ctx != t.Context() || opts.Root != filepath.Join(home, ".kuke") {
 						t.Fatal("dependencies not forwarded")
 					}
 					if tc.failure {
-						return bootstrap.Result{}, sentinel
+						return initialize.Result{}, sentinel
 					}
-					return bootstrap.Result{
-						Path:        path,
-						Created:     tc.created,
-						Diagnostics: []string{"discovery diagnostic"},
+					return initialize.Result{
+						EntryPath: filepath.Join(home, ".kuke", "kuketeam.d", "root.yaml"),
+						Resources: 2,
+						Bootstrap: bootstrap.Result{
+							Path:        path,
+							Created:     tc.created,
+							Diagnostics: []string{"discovery diagnostic"},
+						},
 					}, nil
 				})
 			cmd.SilenceUsage, cmd.SilenceErrors = true, true
@@ -72,7 +77,7 @@ func TestInitOutcomes(t *testing.T) {
 			if err != nil || !strings.Contains(stdout.String(), status+": "+path) ||
 				!strings.Contains(
 					stdout.String(),
-					"no team has been created or registered",
+					"registered root team:",
 				) || stderr.String() != "discovery diagnostic\n" {
 				t.Fatalf("error=%v stdout=%q stderr=%q", err, &stdout, &stderr)
 			}
@@ -85,9 +90,9 @@ func TestInitHelpAndUnsupportedFlagsHaveNoEffects(t *testing.T) {
 		cmd := newInitCommand(func() (string, error) {
 			t.Fatal("home resolution must be lazy")
 			return "", nil
-		}, func(context.Context, bootstrap.Options) (bootstrap.Result, error) {
+		}, func(context.Context, initialize.Options) (initialize.Result, error) {
 			t.Fatal("bootstrap must not run")
-			return bootstrap.Result{}, nil
+			return initialize.Result{}, nil
 		})
 		var out bytes.Buffer
 		cmd.SetOut(&out)
@@ -95,7 +100,7 @@ func TestInitHelpAndUnsupportedFlagsHaveNoEffects(t *testing.T) {
 		cmd.SetArgs(args)
 		err := cmd.Execute()
 		if args[0] == "--help" {
-			if err != nil || !strings.Contains(out.String(), "configuration only") {
+			if err != nil || !strings.Contains(out.String(), "No cells are created or started") {
 				t.Fatalf("error=%v output=%q", err, &out)
 			}
 		} else if err == nil {
@@ -106,11 +111,29 @@ func TestInitHelpAndUnsupportedFlagsHaveNoEffects(t *testing.T) {
 
 func TestInitHomeFailure(t *testing.T) {
 	sentinel := errors.New("home unavailable")
-	cmd := newInitCommand(func() (string, error) { return "", sentinel }, bootstrap.Run)
+	cmd := newInitCommand(func() (string, error) { return "", sentinel }, initialize.Run)
 	cmd.SetArgs([]string{})
 	cmd.SetOut(&bytes.Buffer{})
 	cmd.SetErr(&bytes.Buffer{})
 	if err := cmd.Execute(); !errors.Is(err, sentinel) || !strings.Contains(err.Error(), "home directory") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestInitForwardsConnectionFlags(t *testing.T) {
+	home := t.TempDir()
+	cmd := newInitCommand(
+		func() (string, error) { return home, nil },
+		func(_ context.Context, opts initialize.Options) (initialize.Result, error) {
+			if opts.Home != home || opts.Host != "unix:///chosen.sock" || opts.Configuration != "/chosen/kuke.yaml" {
+				t.Fatalf("options=%+v", opts)
+			}
+			return initialize.Result{}, nil
+		},
+	)
+	cmd.SetOut(&bytes.Buffer{})
+	cmd.SetArgs([]string{"--host", "unix:///chosen.sock", "--configuration", "/chosen/kuke.yaml"})
+	if err := cmd.Execute(); err != nil {
+		t.Fatal(err)
 	}
 }

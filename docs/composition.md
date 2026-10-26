@@ -3,8 +3,7 @@
 `pkg/compose.Compose` produces blueprints, configs, and application requirements.
 It reads caller-supplied definition filesystems. It does not fetch sources, read
 credential values, contact kukeond, apply resources, register a team, or start a
-cell. CLI `init` still performs configuration bootstrap; daemon integration is
-issue #13. Live image/authentication/agent loading verification belongs to #14.
+cell. CLI `init` uses this output for [daemon application and registration](initialization.md). Live image/authentication/agent loading verification belongs to #14.
 
 ## Selections and persistence
 
@@ -165,8 +164,8 @@ included in output. Image capability selection supplies no authentication.
 Composition emits secret **references** in configs and consumption slots in
 blueprints. It never reads env/file values, emits `Secret` documents, removes
 requirements because a local value is absent, or copies creation sources into
-daemon documents. Application (#13) must check runtime existence and distinguish
-lookup failures from missing secrets, reuse existing values, and read an explicit
+daemon documents. Application checks runtime existence and distinguishes
+lookup failures from missing secrets, reuses existing values, and reads an explicit
 creation source only when needed. Keep resolved bytes separate from these models.
 Specialized-role onboarding and remediation remain epic step 5.
 

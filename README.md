@@ -9,8 +9,8 @@ from external repositories.
 
 ## Status
 
-The configuration library, CLI help/version, and configuration-only `init` are
-available. Team composition remains planned; the delivery steps are tracked
+The configuration library, structural composition, CLI help/version, and root-team
+application through `init` are available. Further delivery steps are tracked
 in [the implementation epic](https://github.com/eminwux/kuketeams/issues/1).
 
 The planned workflow is:
@@ -126,7 +126,8 @@ help/version create no operator configuration.
 
 ## Initialize operator configuration
 
-Run `kuketeams init` from any directory, with no project checkout or daemon:
+Run `kuketeams init` from any directory after initializing kukeon and starting
+kukeond. The `default` realm, space, and stack must already exist:
 
 ```sh
 ./bin/kuketeams init
@@ -134,9 +135,23 @@ Run `kuketeams init` from any directory, with no project checkout or daemon:
 
 This creates `~/.kuke/kuketeams.yaml` with the kuketeams source on `main`, the
 `operator` role (requesting the `go` image), and the default `codex` harness. Edit
-this file to customize configuration. This delivery initializes configuration
-only: it does not fetch assets, compose or register a team, generate manifests,
-or build images. `init --build` is rejected until build support is implemented.
+this file to customize configuration. Init fetches the selected role/harness
+definitions at their declared revisions, composes root-owned blueprints/configs,
+and applies them through kukeond. It registers the accepted declaration at
+`~/.kuke/kuketeam.d/root.yaml` only after every resource succeeds. Cells remain
+under kukeon's explicit lifecycle commands. `init --build` is rejected until
+build support is implemented.
+
+The endpoint follows kuke's precedence: `init --host unix:///path/to/kukeond.sock`,
+`KUKEON_HOST`, `ClientConfiguration.spec.host` in `~/.kuke/kuke.yaml`, then
+`unix:///run/kukeon/kukeond.sock`. Use `init --configuration /path/to/kuke.yaml` or
+`KUKE_CONFIGURATION` to select another client configuration.
+
+Only the selected role/harness authentication requirements are checked. The base
+operator requires no `gh-token`; existing scoped credentials are reused. Missing
+credentials require an explicit env/file source or a scoped remediation command.
+See [initialization and failure recovery](docs/initialization.md) for secret
+handling, partial applies, and the daemon integration check.
 
 Available **global** Git settings seed separate author/committer identities, the
 signing key, commit/tag signing selections, and allowed signers. Missing values

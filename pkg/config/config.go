@@ -135,7 +135,9 @@ type Team struct {
 	APIVersion string   `yaml:"apiVersion"`
 	Kind       string   `yaml:"kind"`
 	Metadata   Metadata `yaml:"metadata"`
-	Spec       Defaults `yaml:"spec"`
+	// ProjectSource is additive to resolved sources; authored lists still replace defaults.
+	ProjectSource *Source  `yaml:"projectSource,omitempty"`
+	Spec          Defaults `yaml:"spec"`
 }
 
 type Metadata struct {
@@ -148,5 +150,7 @@ type TeamEntry struct {
 	APIVersion string   `yaml:"apiVersion"`
 	Kind       string   `yaml:"kind"`
 	Metadata   Metadata `yaml:"metadata"`
-	Spec       Defaults `yaml:"spec"`
+	// ProjectSource is additive to resolved sources; authored lists still replace defaults.
+	ProjectSource *Source  `yaml:"projectSource,omitempty"`
+	Spec          Defaults `yaml:"spec"`
 }

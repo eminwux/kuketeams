@@ -205,3 +205,58 @@ spec:
 		t.Fatalf("effective team clone path not validated: %v", err)
 	}
 }
+
+func TestProjectSourceIsAdditiveAndRetainsInheritance(t *testing.T) {
+	cfg := &config.TeamsConfig{
+		APIVersion: config.APIVersion,
+		Kind:       config.Kind,
+		Spec: config.Spec{
+			Defaults: config.Defaults{
+				Sources: []config.Source{{Name: "definitions", URL: "https://example.test/defs", Branch: "main"}},
+			},
+		},
+	}
+	team := config.Root()
+	team.Metadata.Name = "example"
+	team.ProjectSource = &config.Source{
+		Name:      "project",
+		URL:       "git@alias:owner/repo",
+		Branch:    "trunk",
+		ClonePath: "/home/user/example",
+	}
+	effective, err := config.Resolve(cfg, team)
+	if err != nil || len(effective.Sources) != 2 || team.Spec.Sources != nil {
+		t.Fatalf("error=%v", err)
+	}
+	entry, err := config.Entry(team)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := yaml.Marshal(entry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted, err := config.DecodeEntry(bytes.NewReader(raw))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Spec.Defaults.Sources[0].Branch = "next"
+	effective, err = config.Resolve(cfg, accepted.Team())
+	if err != nil || effective.Sources[0].Branch != "next" || effective.Sources[1].Branch != "trunk" {
+		t.Fatal("defaults frozen")
+	}
+	team.ProjectSource.Branch = "changed"
+	if entry.ProjectSource.Branch != "trunk" {
+		t.Fatal("project declaration aliased")
+	}
+	// Authored lists still replace rather than merge the defaults.
+	team.Spec.Sources = []config.Source{}
+	effective, err = config.Resolve(cfg, team)
+	if err != nil || len(effective.Sources) != 1 || effective.Sources[0].Name != "project" {
+		t.Fatal("explicit-list replacement changed")
+	}
+	team.Spec.Sources = []config.Source{{Name: "project", URL: "https://example.test/other", Branch: "main"}}
+	if _, err = config.Resolve(cfg, team); err == nil || !strings.Contains(err.Error(), "conflicts") {
+		t.Fatal("collision silently overwrote source")
+	}
+}

@@ -21,23 +21,32 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/eminwux/kuketeams/internal/gitremote"
 	"github.com/eminwux/kuketeams/pkg/config"
 )
 
 // Fetch only sources used for definitions, at their declared revision. Temporary
 // checkouts do not become runtime clone paths and are removed after composition.
 func materialize(ctx context.Context, d config.Defaults) (map[string]fs.FS, func(), error) {
+	return materializeSources(ctx, d, false)
+}
+
+func materializeSources(ctx context.Context, d config.Defaults, project bool) (map[string]fs.FS, func(), error) {
 	root, err := os.MkdirTemp("", "kuketeams-sources-*")
 	if err != nil {
 		return nil, nil, err
 	}
 	cleanup := func() { _ = os.RemoveAll(root) }
 	needed := map[string]bool{}
+	for _, source := range d.Sources {
+		if project && source.Name == "project" {
+			needed[source.Name] = true
+		}
+	}
 	for _, role := range d.Roles {
 		needed[role.Source] = true
 		for _, harness := range d.Harnesses {
@@ -70,14 +79,12 @@ func materialize(ctx context.Context, d config.Defaults) (map[string]fs.FS, func
 			{"-C", dir, "checkout", "--quiet", "--detach", "FETCH_HEAD"},
 		}
 		for _, args := range commands {
-			cmd := exec.CommandContext(ctx, "git", args...)
-			cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0", "GCM_INTERACTIVE=never")
-			if runErr := cmd.Run(); runErr != nil {
+			if _, runErr := gitremote.Run(ctx, args...); runErr != nil {
 				cleanup()
 				// Git stderr and URLs may contain credentials; never forward them.
 				return nil, nil, fmt.Errorf(
-					"materialize source %q: Git failed; check Git installation, source URL, revision, and access",
-					source.Name,
+					"materialize source %q: %w",
+					source.Name, runErr,
 				)
 			}
 		}

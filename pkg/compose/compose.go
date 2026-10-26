@@ -107,6 +107,18 @@ func Compose(cfg *config.TeamsConfig, team *config.Team, opts Options) (*Result,
 			if pairErr != nil {
 				return nil, fmt.Errorf("compose %s/%s: %w", role.Name, h.Name, pairErr)
 			}
+			// Add's project declaration distinguishes a tag from a same-named
+			// branch all the way through the runtime checkout contract.
+			if team.ProjectSource != nil {
+				fill, ok := pair.Config.Spec.Repos["project"]
+				if !ok {
+					return nil, errors.New("template did not declare project repository slot")
+				}
+				if team.ProjectSource.Tag != "" {
+					fill.Ref = "refs/tags/" + team.ProjectSource.Tag
+				}
+				pair.Config.Spec.Repos["project"] = fill
+			}
 			result.Pairs = append(result.Pairs, pair)
 		}
 	}

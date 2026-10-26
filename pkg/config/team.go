@@ -52,6 +52,19 @@ func Resolve(cfg *TeamsConfig, team *Team) (Defaults, error) {
 	if d.Harnesses == nil {
 		d.Harnesses = cfg.Spec.Defaults.Harnesses
 	}
+	if team.ProjectSource != nil {
+		if team.ProjectSource.Name != "project" {
+			return Defaults{}, errors.New("projectSource: name must be project")
+		}
+		for _, source := range d.Sources {
+			if source.Name == "project" {
+				return Defaults{}, errors.New(
+					"projectSource: source name project conflicts with resolved sources; rename the inherited/authored source",
+				)
+			}
+		}
+		d.Sources = append(slices.Clone(d.Sources), *team.ProjectSource)
+	}
 	return d, validateDefaults(&d)
 }
 
@@ -73,10 +86,11 @@ func Entry(team *Team) (*TeamEntry, error) {
 		return nil, errors.New("team: invalid declaration")
 	}
 	return &TeamEntry{
-		APIVersion: APIVersion,
-		Kind:       KindTeamEntry,
-		Metadata:   team.Metadata,
-		Spec:       cloneSelections(team.Spec),
+		APIVersion:    APIVersion,
+		Kind:          KindTeamEntry,
+		Metadata:      team.Metadata,
+		ProjectSource: cloneSource(team.ProjectSource),
+		Spec:          cloneSelections(team.Spec),
 	}, nil
 }
 
@@ -92,7 +106,13 @@ func DecodeEntry(r io.Reader) (*TeamEntry, error) {
 }
 
 func (e TeamEntry) Team() *Team {
-	return &Team{APIVersion: e.APIVersion, Kind: KindTeam, Metadata: e.Metadata, Spec: cloneSelections(e.Spec)}
+	return &Team{
+		APIVersion:    e.APIVersion,
+		Kind:          KindTeam,
+		Metadata:      e.Metadata,
+		ProjectSource: cloneSource(e.ProjectSource),
+		Spec:          cloneSelections(e.Spec),
+	}
 }
 
 func cloneSelections(d Defaults) Defaults {
@@ -107,4 +127,12 @@ func cloneSelections(d Defaults) Defaults {
 		}
 	}
 	return d
+}
+
+func cloneSource(source *Source) *Source {
+	if source == nil {
+		return nil
+	}
+	copySource := *source
+	return &copySource
 }

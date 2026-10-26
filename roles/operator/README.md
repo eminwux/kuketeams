@@ -49,8 +49,9 @@ make -C /path/to/kuketeams codex ROLE=roles/operator
 make -C /path/to/kuketeams opencode-openrouter ROLE=roles/operator
 ```
 
-Role directories carry policy, configuration, and skills. They do not need their
-own Makefile or installer. The shared installer supports additional roles via
+The [role-local Makefile](Makefile) forwards the same targets to the shared
+installer; for example, `make -C /path/to/kuketeams/roles/operator codex`.
+The shared installer supports additional roles via
 `ROLE=roles/<name>`, preserves user assets, and links native user instruction and
 skill paths. Retain the source checkout at its absolute path while the cell runs.
 

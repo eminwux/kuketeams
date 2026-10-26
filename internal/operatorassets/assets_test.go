@@ -232,7 +232,7 @@ func runMake(t *testing.T, dir, home, target string, overrides ...string) ([]byt
 }
 
 // Copy only the installer and role assets so the test cannot accidentally
-// depend on the rest of the checkout or on per-role executable code.
+// depend on unrelated files in the rest of the checkout.
 func copyMaterializationSource(t *testing.T) string {
 	t.Helper()
 	sourceDir := filepath.Join(t.TempDir(), "source with spaces")
@@ -295,8 +295,8 @@ func TestMaterialization(t *testing.T) {
 						policyName = "AGENTS.md"
 						skills = filepath.Join(home, ".agents/skills")
 					}
-					for range 2 {
-						if output, err := runMake(t, sourceDir, home, harness, overrides...); err != nil {
+					for _, makeDir := range []string{roleDir, sourceDir} {
+						if output, err := runMake(t, makeDir, home, harness, overrides...); err != nil {
 							t.Fatalf("install: %s: %v", output, err)
 						}
 					}

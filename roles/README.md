@@ -13,6 +13,11 @@ make -C /path/to/kuketeams opencode-openrouter ROLE=roles/operator
 ```
 
 For an additional role, set `ROLE` to its existing `roles/<name>` directory.
+The operator also provides a thin role-local Makefile, so
+`make -C /path/to/kuketeams/roles/operator codex` calls the same shared script.
+Additional roles can use the same three-target wrapper without duplicating
+installation logic.
+
 The default `ROLE` is `roles/operator`. Paths resolve from the source checkout
 (the directory selected with `make -C`), independently of the caller's directory.
 The shared installer requires POSIX sh, make, and standard filesystem utilities;

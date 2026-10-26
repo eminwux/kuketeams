@@ -8,13 +8,9 @@ spec:
   harnesses:
     claude:
       settings: config/claude.settings.json
-      secrets:
-        - claude-code-oauth-token
     codex:
       sandbox: workspace-write
       approval: on-request
-      secrets:
-        - openai-api-key
     opencode:
       permissions: ask
       secrets:

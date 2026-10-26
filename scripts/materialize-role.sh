@@ -1,7 +1,18 @@
 #!/bin/sh
-# Install this role in a dedicated cell home without overwriting user policy.
+# Install a selected role in a dedicated cell home without overwriting user policy.
 set -eu
-role_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+if [ "$#" -ne 2 ]; then
+    echo 'Usage: materialize-role.sh ROLE_DIR HARNESS_TARGET' >&2
+    exit 1
+fi
+role_dir=$(CDPATH= cd -- "$1" && pwd)
+harness=$2
+for asset in AGENTS.md role.yaml; do
+    if [ ! -f "$role_dir/$asset" ]; then
+        echo "Missing role asset: $role_dir/$asset" >&2
+        exit 1
+    fi
+done
 : "${HOME:?HOME must identify the cell home}"
 case "$HOME" in /*) ;; *) echo 'HOME must be absolute' >&2; exit 1 ;; esac
 
@@ -21,7 +32,7 @@ link_asset() {
     fi
 }
 
-case "${1:-}" in
+case "$harness" in
     claude)
         config_dir=${CLAUDE_CONFIG_DIR:-$HOME/.claude}
         policy=$config_dir/CLAUDE.md
@@ -30,7 +41,7 @@ case "${1:-}" in
     codex)
         config_dir=${CODEX_HOME:-$HOME/.codex}
         if [ -s "$config_dir/AGENTS.override.md" ]; then
-            echo 'AGENTS.override.md shadows the operator instructions' >&2
+            echo 'AGENTS.override.md shadows the selected role instructions' >&2
             exit 1
         fi
         policy=$config_dir/AGENTS.md
@@ -49,14 +60,24 @@ case "$config_dir" in /*) ;; *) echo 'Configuration directory must be absolute' 
 # Preflight every destination before installing any of them. Never delete a
 # shared skills tree or touch unrelated harness settings/credentials.
 check_link "$role_dir/AGENTS.md" "$policy"
-check_link "$role_dir/skills/create-cell-config" "$skills/create-cell-config"
-if [ "${1}" = opencode-openrouter ]; then
+for skill in "$role_dir"/skills/*; do
+    [ -d "$skill" ] || continue
+    if [ ! -f "$skill/SKILL.md" ]; then
+        echo "Missing skill instructions: $skill/SKILL.md" >&2
+        exit 1
+    fi
+    check_link "$skill" "$skills/$(basename -- "$skill")"
+done
+if [ "$harness" = opencode-openrouter ] && [ -f "$role_dir/config/opencode.json" ]; then
     case "$settings" in /*) ;; *) echo 'OPENCODE_CONFIG must be absolute' >&2; exit 1 ;; esac
     check_link "$role_dir/config/opencode.json" "$settings"
 fi
 link_asset "$role_dir/AGENTS.md" "$policy"
-link_asset "$role_dir/skills/create-cell-config" "$skills/create-cell-config"
-if [ "${1}" = opencode-openrouter ]; then
+for skill in "$role_dir"/skills/*; do
+    [ -d "$skill" ] || continue
+    link_asset "$skill" "$skills/$(basename -- "$skill")"
+done
+if [ "$harness" = opencode-openrouter ] && [ -f "$role_dir/config/opencode.json" ]; then
     link_asset "$role_dir/config/opencode.json" "$settings"
 fi
-printf 'Operator instructions: %s\nOperator skill: %s\n' "$policy" "$skills/create-cell-config"
+printf 'Role instructions: %s\nRole skills: %s\n' "$policy" "$skills"

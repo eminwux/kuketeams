@@ -259,7 +259,9 @@ format described in the epic.
 ## Basic operator role
 
 [`roles/operator`](roles/operator/README.md) provides the kukeon operator policy,
-per-harness materialization adapters, and the initial `create-cell-config` skill.
+harness configuration, and the initial `create-cell-config` skill.
+[Shared Make targets](roles/README.md) materialize any selected role with
+`ROLE=roles/<name>`; roles do not need separate installer code.
 The default `init` role path resolves to this self-contained tree. The skill
 separates draft YAML from applied configuration and never starts a cell implicitly.
 See the role guide for runtime access, selected-harness authentication, installation,

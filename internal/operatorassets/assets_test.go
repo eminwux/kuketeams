@@ -161,17 +161,17 @@ func TestDefaultRoleAssets(t *testing.T) {
 
 func checkHarnessSettings(t *testing.T, role definition, roleDir string) {
 	t.Helper()
-	wantSecrets := map[string]string{
-		"claude":   "claude-code-oauth-token",
-		"codex":    "openai-api-key",
-		"opencode": "openrouter-api-key",
+	wantSecrets := map[string][]string{
+		"claude":   nil,
+		"codex":    nil,
+		"opencode": {"openrouter-api-key"},
 	}
 	if len(role.Spec.Harnesses) != len(wantSecrets) {
 		t.Fatal("unexpected harness selection")
 	}
 	for name, secret := range wantSecrets {
 		h, ok := role.Spec.Harnesses[name]
-		if !ok || !reflect.DeepEqual(h.Secrets, []string{secret}) {
+		if !ok || !reflect.DeepEqual(h.Secrets, secret) {
 			t.Fatalf("%s provider secrets: %v", name, h.Secrets)
 		}
 	}
@@ -221,6 +221,7 @@ func runMake(t *testing.T, dir, home, target string, overrides ...string) ([]byt
 	cmd.Env = append(
 		os.Environ(),
 		"HOME="+home,
+		"ROLE=roles/operator",
 		"CODEX_HOME=",
 		"CLAUDE_CONFIG_DIR=",
 		"XDG_CONFIG_HOME=",
@@ -230,22 +231,36 @@ func runMake(t *testing.T, dir, home, target string, overrides ...string) ([]byt
 	return cmd.CombinedOutput()
 }
 
+// Copy only the installer and role assets so the test cannot accidentally
+// depend on the rest of the checkout or on per-role executable code.
+func copyMaterializationSource(t *testing.T) string {
+	t.Helper()
+	sourceDir := filepath.Join(t.TempDir(), "source with spaces")
+	root := repoRoot(t)
+	for _, path := range []string{"Makefile", "scripts/materialize-role.sh", "roles/operator"} {
+		copyAsset(t, filepath.Join(root, path), filepath.Join(sourceDir, path))
+	}
+	return sourceDir
+}
+
+func copyAsset(t *testing.T, source, destination string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(destination), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	copyCmd := exec.CommandContext(t.Context(), "cp", "-a", source, destination)
+	if output, err := copyCmd.CombinedOutput(); err != nil {
+		t.Fatalf("copy: %s: %v", output, err)
+	}
+}
+
 func TestMaterialization(t *testing.T) {
 	for _, harness := range []string{"claude", "codex", "opencode-openrouter"} {
 		t.Run(harness, func(t *testing.T) {
-			// A copied role alone must work, even with spaces in its path and
-			// no agents checkout, harness catalog, Go executable, or daemon.
-			roleDir := filepath.Join(t.TempDir(), "operator source")
-			copyCmd := exec.CommandContext(
-				t.Context(),
-				"cp",
-				"-a",
-				filepath.Join(repoRoot(t), "roles/operator"),
-				roleDir,
-			)
-			if output, err := copyCmd.CombinedOutput(); err != nil {
-				t.Fatalf("copy: %s: %v", output, err)
-			}
+			// A copied source with the shared installer must work offline,
+			// independently of any agents checkout, harness catalog, or daemon.
+			sourceDir := copyMaterializationSource(t)
+			roleDir := filepath.Join(sourceDir, "roles/operator")
 			for _, custom := range []bool{false, true} {
 				t.Run(map[bool]string{false: "native", true: "overrides"}[custom], func(t *testing.T) {
 					home := filepath.Join(t.TempDir(), "cell home")
@@ -281,7 +296,7 @@ func TestMaterialization(t *testing.T) {
 						skills = filepath.Join(home, ".agents/skills")
 					}
 					for range 2 {
-						if output, err := runMake(t, roleDir, home, harness, overrides...); err != nil {
+						if output, err := runMake(t, sourceDir, home, harness, overrides...); err != nil {
 							t.Fatalf("install: %s: %v", output, err)
 						}
 					}
@@ -315,7 +330,7 @@ func TestMaterialization(t *testing.T) {
 }
 
 func TestConflictsPreserveHome(t *testing.T) {
-	roleDir := filepath.Join(repoRoot(t), "roles/operator")
+	sourceDir := repoRoot(t)
 	for _, tc := range []struct{ target, conflict, absent string }{
 		{"claude", ".claude/CLAUDE.md", ".claude/skills/create-cell-config"},
 		{"codex", ".codex/AGENTS.md", ".agents/skills/create-cell-config"},
@@ -333,7 +348,7 @@ func TestConflictsPreserveHome(t *testing.T) {
 			if err := os.WriteFile(conflict, original, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			if output, err := runMake(t, roleDir, home, tc.target); err == nil {
+			if output, err := runMake(t, sourceDir, home, tc.target); err == nil {
 				t.Fatalf("expected conflict, got %s", output)
 			}
 			if !bytes.Equal(read(t, conflict), original) {
@@ -380,6 +395,77 @@ func TestHarnessContracts(t *testing.T) {
 			source := filepath.Join(root, "roles/operator/skills/create-cell-config/SKILL.md")
 			if !bytes.Equal(read(t, installed), read(t, source)) {
 				t.Fatal("skill not installed at harness-declared path")
+			}
+		})
+	}
+}
+
+func TestMultipleRoles(t *testing.T) {
+	sourceDir := copyMaterializationSource(t)
+	copyAsset(t, "testdata/inspector", filepath.Join(sourceDir, "roles/inspector"))
+	for _, harness := range []string{"claude", "codex", "opencode-openrouter"} {
+		t.Run(harness, func(t *testing.T) {
+			for _, role := range []string{"operator", "inspector"} {
+				t.Run(role, func(t *testing.T) {
+					home := t.TempDir()
+					configDir := filepath.Join(home, ".claude")
+					policy := filepath.Join(configDir, "CLAUDE.md")
+					skills := filepath.Join(configDir, "skills")
+					switch harness {
+					case "codex":
+						policy = filepath.Join(home, ".codex/AGENTS.md")
+						skills = filepath.Join(home, ".agents/skills")
+					case "opencode-openrouter":
+						configDir = filepath.Join(home, ".config/opencode")
+						policy = filepath.Join(configDir, "AGENTS.md")
+						skills = filepath.Join(home, ".agents/skills")
+					}
+					other := filepath.Join(skills, "user-skill/SKILL.md")
+					if err := os.MkdirAll(filepath.Dir(other), 0o700); err != nil {
+						t.Fatal(err)
+					}
+					original := []byte("user skill\n")
+					if err := os.WriteFile(other, original, 0o600); err != nil {
+						t.Fatal(err)
+					}
+					for range 2 {
+						if output, err := runMake(t, sourceDir, home, harness, "ROLE=roles/"+role); err != nil {
+							t.Fatalf("install: %s: %v", output, err)
+						}
+					}
+					roleDir := filepath.Join(sourceDir, "roles", role)
+					if !bytes.Equal(read(t, policy), read(t, filepath.Join(roleDir, "AGENTS.md"))) {
+						t.Fatal("wrong role policy")
+					}
+					entries, err := os.ReadDir(filepath.Join(roleDir, "skills"))
+					if err != nil {
+						t.Fatal(err)
+					}
+					for _, entry := range entries {
+						path := filepath.Join(entry.Name(), "SKILL.md")
+						if !bytes.Equal(
+							read(t, filepath.Join(skills, path)),
+							read(t, filepath.Join(roleDir, "skills", path)),
+						) {
+							t.Fatalf("wrong skill: %s", entry.Name())
+						}
+					}
+					installed, err := os.ReadDir(skills)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if len(installed) != len(entries)+1 {
+						t.Fatalf("unexpected skills: %v", installed)
+					}
+					if !bytes.Equal(read(t, other), original) {
+						t.Fatal("unrelated user skill changed")
+					}
+					if harness == "opencode-openrouter" && role == "inspector" {
+						if _, statErr := os.Lstat(filepath.Join(configDir, "opencode.json")); !os.IsNotExist(statErr) {
+							t.Fatalf("config installed for role without config: %v", statErr)
+						}
+					}
+				})
 			}
 		})
 	}

@@ -166,6 +166,10 @@ credentials require an explicit env/file source or a scoped remediation command.
 See [initialization and failure recovery](docs/initialization.md) for secret
 handling, partial applies, and the daemon integration check.
 
+For the explicit published-image launch and authenticated Codex check, see the
+[remote operator check](docs/remote-operator-check.md). It verifies initialization
+separately from cell startup and reports unmet image/authentication prerequisites.
+
 Available **global** Git settings seed separate author/committer identities, the
 signing key, commit/tag signing selections, and allowed signers. Missing values
 are optional; incomplete identities and signing enabled without a key are omitted

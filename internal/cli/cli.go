@@ -60,6 +60,6 @@ func NewCommand(stdout, stderr io.Writer, version string) *cobra.Command {
 			return target.Help()
 		},
 	})
-	root.AddCommand(defaultInitCommand())
+	root.AddCommand(defaultInitCommand(), defaultAddCommand())
 	return root
 }

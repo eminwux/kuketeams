@@ -189,6 +189,17 @@ This requires a local filesystem supporting hard links; unsupported publication
 fails safely and removes temporary files. No configuration-path flag or environment
 override is provided.
 
+## Add a project team
+
+```sh
+kuketeams add kukeon --source git@github.com:eminwux/kukeon.git
+```
+
+Add resolves global defaults, validates the remote and revision, applies named
+blueprints/configs, and registers the accepted declaration. See
+[adding teams](docs/adding-teams.md) for revision flags, SSH/HTTPS credentials,
+inheritance, runtime prerequisites, and failure recovery.
+
 ## Configuration library
 
 Import `github.com/eminwux/kuketeams/pkg/config`. Callers supply readers/writers

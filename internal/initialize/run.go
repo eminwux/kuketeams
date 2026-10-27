@@ -25,6 +25,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/eminwux/kukeon/pkg/api/kukeonv1"
 	"github.com/eminwux/kuketeams/internal/bootstrap"
@@ -65,32 +66,46 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return result, err
 	}
-	effective, err := config.Resolve(boot.Config, team)
+	return runTeam(ctx, opts, boot.Config, team, result, "kuketeams init")
+}
+
+// runTeam is shared by init and add; staging precedes all daemon writes.
+func runTeam(
+	ctx context.Context,
+	opts Options,
+	cfg *config.TeamsConfig,
+	team *config.Team,
+	result Result,
+	command string,
+) (Result, error) {
+	name := team.Metadata.Name
+	entryPath := filepath.Join(opts.Root, "kuketeam.d", name+".yaml")
+	effective, err := config.Resolve(cfg, team)
 	if err != nil {
 		return result, err
 	}
 	sources := opts.Sources
 	if sources == nil {
 		var cleanup func()
-		sources, cleanup, err = materialize(ctx, effective)
+		sources, cleanup, err = materializeSources(ctx, effective, team.ProjectSource != nil)
 		if err != nil {
 			return result, err
 		}
 		defer cleanup()
 	}
-	composed, err := compose.Compose(boot.Config, team, compose.Options{
-		Sources: sources, HomeDir: opts.Home, TeamDir: filepath.Join(opts.Root, "teams", rootName),
+	composed, err := compose.Compose(cfg, team, compose.Options{
+		Sources: sources, HomeDir: opts.Home, TeamDir: filepath.Join(opts.Root, "teams", name),
 	})
 	if err != nil {
 		return result, fmt.Errorf("preflight composition: %w", err)
 	}
 	if len(composed.Pairs) == 0 {
-		return result, errors.New("preflight: root team selects no role/harness pairs")
+		return result, errors.New("preflight: team selects no role/harness pairs")
 	}
 	// Encode and validate local entry publication before any daemon mutation.
 	entryBytes, err := yaml.Marshal(composed.Entry)
 	if err != nil {
-		return result, fmt.Errorf("encode root TeamEntry: %w", err)
+		return result, fmt.Errorf("encode TeamEntry: %w", err)
 	}
 	stage, err := stageEntry(entryPath, entryBytes)
 	if err != nil {
@@ -109,17 +124,24 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 		}
 		defer func() { _ = client.Close() }()
 	}
-	if err = Apply(ctx, client, composed); err != nil {
+	if err = apply(ctx, client, composed, command); err != nil {
+		if command != "kuketeams init" {
+			return result, fmt.Errorf(
+				"%w; after fixing the prerequisite, rerun %s with the same revision flags",
+				err,
+				command,
+			)
+		}
 		return result, err
 	}
 	if err = ctx.Err(); err != nil {
-		return result, err
+		return result, fmt.Errorf("resources applied but registration unchanged: %w; rerun %s", err, command)
 	}
 	if err = os.Rename(stage, entryPath); err != nil {
 		return result, fmt.Errorf(
-			"resources applied but root registration failed at %s: %w; rerun kuketeams init",
+			"resources applied but registration failed at %s: %w; rerun %s",
 			entryPath,
-			err,
+			err, command,
 		)
 	}
 	result.EntryPath, result.Resources = entryPath, len(composed.Pairs)*resourcesPerPair
@@ -127,30 +149,38 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 }
 
 func readTeam(path string) (*config.Team, error) {
+	return readNamedTeam(path, rootName)
+}
+
+func readNamedTeam(path, name string) (*config.Team, error) {
 	raw, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return config.Root(), nil
+		return &config.Team{
+			APIVersion: config.APIVersion,
+			Kind:       config.KindTeam,
+			Metadata:   config.Metadata{Name: name},
+		}, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read root registration %s: %w", path, err)
+		return nil, fmt.Errorf("read team registration %s: %w", path, err)
 	}
 	entry, err := config.DecodeEntry(bytes.NewReader(raw))
 	if err != nil {
-		return nil, fmt.Errorf("read root registration %s: %w", path, err)
+		return nil, fmt.Errorf("read team registration %s: %w", path, err)
 	}
-	if entry.Metadata.Name != rootName {
-		return nil, errors.New("root registration must name team root")
+	if entry.Metadata.Name != name {
+		return nil, errors.New("registration must match the requested team name")
 	}
 	return entry.Team(), nil
 }
 
 func stageEntry(path string, data []byte) (string, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return "", fmt.Errorf("prepare root registration: %w", err)
+		return "", fmt.Errorf("prepare team registration: %w", err)
 	}
-	f, err := os.CreateTemp(filepath.Dir(path), ".root-*.yaml")
+	f, err := os.CreateTemp(filepath.Dir(path), "."+strings.TrimSuffix(filepath.Base(path), ".yaml")+"-*.yaml")
 	if err != nil {
-		return "", fmt.Errorf("stage root registration: %w", err)
+		return "", fmt.Errorf("stage team registration: %w", err)
 	}
 	_, err = f.Write(data)
 	if err == nil {
@@ -162,7 +192,7 @@ func stageEntry(path string, data []byte) (string, error) {
 	}
 	if err != nil {
 		_ = os.Remove(f.Name())
-		return "", fmt.Errorf("stage root registration: %w", err)
+		return "", fmt.Errorf("stage team registration: %w", err)
 	}
 	return f.Name(), nil
 }

@@ -60,7 +60,12 @@ func inspectCapture(raw []byte) (*probeResult, bool, error) {
 				Output   string `json:"aggregated_output"`
 			} `json:"item"`
 		}
-		if json.Unmarshal(bytes.TrimSpace(line), &event) != nil {
+		// The PTY may prefix an event with bracketed-paste disable followed
+		// by CR. Strip only this known leading framing; never search prose
+		// for embedded JSON or remove control bytes inside event payloads.
+		line = bytes.TrimSpace(line)
+		line = bytes.TrimPrefix(line, []byte("\x1b[?2004l\r"))
+		if json.Unmarshal(line, &event) != nil {
 			continue
 		}
 		switch event.Type {

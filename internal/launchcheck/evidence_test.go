@@ -17,7 +17,9 @@
 package launchcheck
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"os/exec"
 	"strings"
 	"testing"
@@ -73,6 +75,10 @@ func TestCaptureRequiresCompletedCommandAndTurn(t *testing.T) {
 		pass, wantError bool
 	}{
 		{"completed", "terminal setup output\r\n" + start + valid + complete, true, false},
+		{"observed first-event framing", "\x1b[?2004l\r" + start + valid + complete, true, false},
+		{"prompt before event", "prompt> " + start + valid + complete, false, false},
+		{"unsupported escape", "\x1b[31m" + start + valid + complete, false, false},
+		{"text before framed event", "prompt> \x1b[?2004l\r" + start + valid + complete, false, false},
 		{"without turn", start + valid, false, false},
 		{"without thread", valid + complete, false, false},
 		{"echoed marker", start + probeMarker + `{"thread_id":"thread-1"}` + "\n" + complete, false, false},
@@ -104,18 +110,25 @@ func TestCaptureRequiresCompletedCommandAndTurn(t *testing.T) {
 		{"multiple threads", start + start + valid + complete, false, true},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			proof, done, err := inspectCapture([]byte(tt.capture))
-			if done != tt.pass || (err != nil) != tt.wantError {
-				t.Fatalf("done=%v error=%v", done, err)
-			}
-			if tt.pass && (proof == nil || proof.validate("revision", "requirements", "hook") != nil) {
-				t.Fatal("valid evidence rejected")
-			}
-			if err != nil && strings.Contains(err.Error(), "sensitive remote detail") {
-				t.Fatal("remote error leaked")
-			}
-		})
+		for _, framed := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/framed=%v", tt.name, framed), func(t *testing.T) {
+				capture := []byte(tt.capture)
+				if framed {
+					capture = bytes.ReplaceAll(capture, []byte("\n"), []byte("\r\n\x1b[?2004l\r"))
+					capture = append([]byte("\x1b[?2004l\r"), capture...)
+				}
+				proof, done, err := inspectCapture(capture)
+				if done != tt.pass || (err != nil) != tt.wantError {
+					t.Fatalf("done=%v error=%v", done, err)
+				}
+				if tt.pass && (proof == nil || proof.validate("revision", "requirements", "hook") != nil) {
+					t.Fatal("valid evidence rejected")
+				}
+				if err != nil && strings.Contains(err.Error(), "sensitive remote detail") {
+					t.Fatal("remote error leaked")
+				}
+			})
+		}
 	}
 }
 

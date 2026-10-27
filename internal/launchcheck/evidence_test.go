@@ -115,7 +115,9 @@ func TestCaptureRequiresCompletedCommandAndTurn(t *testing.T) {
 				capture := []byte(tt.capture)
 				if framed {
 					capture = bytes.ReplaceAll(capture, []byte("\n"), []byte("\r\n\x1b[?2004l\r"))
-					capture = append([]byte("\x1b[?2004l\r"), capture...)
+					if !bytes.HasPrefix(capture, []byte("\x1b[?2004l\r")) {
+						capture = append([]byte("\x1b[?2004l\r"), capture...)
+					}
 				}
 				proof, done, err := inspectCapture(capture)
 				if done != tt.pass || (err != nil) != tt.wantError {

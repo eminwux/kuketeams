@@ -1,4 +1,4 @@
-# Adding a team from a Git repository
+# Adding a project team
 
 After `kuketeams init`, register a named team without a local project checkout or
 Team file:
@@ -64,7 +64,76 @@ their existing whole-list replacement semantics. Omitted fields are not frozen
 into the entry. Future recomposition therefore inherits current global defaults.
 Repeated add replaces the project source/revision, retaining any explicit
 selections in an existing valid named registration. It never resets global
-configuration or reads a local `kuketeam.yaml`.
+configuration. The explicit-source form does not read a local `kuketeam.yaml`.
+
+## Adding from a directory
+
+```sh
+cd /path/to/my-project
+kuketeams add .
+kuketeams add . --name my-team
+kuketeams add ../another-project --source git@host:owner/repo.git --tag v1.0.0
+```
+
+An existing directory argument selects directory mode (including a bare relative
+name); `./name` makes that intent explicit. Otherwise use `NAME --source REPOSITORY`.
+Directory mode reads `kuketeam.yaml` when present as a strict
+`apiVersion: kuketeams.io/v1`, `kind: Team` declaration. Other kinds, invalid YAML,
+unknown fields, multiple documents, and unreadable files fail. A missing file
+starts with an inheriting declaration. The directory and authored file are never
+modified; uncommitted local content is not uploaded or used for definitions.
+
+Naming precedence is `--name`, local `metadata.name`, then directory basename.
+Names must use lowercase letters, digits, dots or hyphens, start and end with a
+letter/digit, and cannot be `root`. Use `--name` to override an unsuitable basename.
+For example:
+
+```yaml
+apiVersion: kuketeams.io/v1
+kind: Team
+metadata:
+  name: my-team
+projectSource:
+  name: project
+  # Each omitted URL/revision is discovered independently from this directory.
+  url: git@github.com:example/my-project.git
+  branch: develop
+spec: {}
+```
+
+`--source` overrides only `projectSource.url`. One of `--branch`, `--tag`, or
+`--commit` replaces the entire local revision selection, clearing the other
+selectors. Explicit empty name/source/revision flags fail. Without overrides,
+local project-source fields win over discovery. A missing source name becomes
+`project`; an omitted clone destination becomes `/home/user/<accepted-team-name>`.
+Authored clone destinations are retained.
+
+For an unspecified URL, native Git reads `remote.origin.url` from local Git
+metadata. For an unspecified revision, it records the current local branch, or
+the full current commit ID for detached HEAD. Git worktrees with a `.git`
+indirection file are supported. No origin or revision is guessed: missing Git
+metadata/origin, unborn HEAD, or unusable source/revision reports an error with
+override guidance. A complete URL and revision supplied by the file/flags permits
+a directory without Git metadata. Directory mode never falls back to remote HEAD.
+The selected revision must be available from the remote; local-only commits and
+branches must be pushed or explicitly overridden before application.
+
+Omitted `spec.sources`, `spec.roles`, and `spec.harnesses` inherit global defaults.
+Authored lists replace the corresponding default lists, and explicit `[]` selects
+none. No role/harness selection flags are introduced; use the Team declaration.
+The discovered project source is additive, preserving inherited definition
+repositories; a conflicting `project` source name fails rather than replacing it.
+References and revision exclusivity are validated before network/application.
+
+The TeamEntry saves the accepted local selections, flag overrides, and discovered
+source selector without expanding omitted defaults or retaining a dependency on
+the input directory/file. It can be recomposed later with current global defaults.
+Each directory add reads its current local declaration afresh; a missing file uses
+defaults. Explicit-source reruns retain selections from the existing registration.
+Both forms use the same stable team identity, preflight, secrets, application, and
+atomic publication. On failure fix the prerequisite and rerun the same directory
+command, file, and flags. Partial application preserves the last accepted entry
+and may leave daemon resources changed; it does not roll back successful writes.
 
 ## Git transports and host credentials
 
@@ -149,7 +218,9 @@ HTTP Git server. It covers remote HEAD discovery, branches/tags/commits, host
 aliases/ports, configured SSH commands, credential-helper authentication, public
 HTTPS without credentials, noninteractive/redacted failures, named Unix RPC
 application, inherited defaults, secret reuse, staging, partial apply, publication
-failure, and repeated registration.
+failure, and repeated registration. Directory fixtures additionally cover naming,
+local declarations and flag precedence, absent/invalid files, branch/detached HEAD,
+Git worktrees, explicit empty lists, persisted inheritance, and failure recovery.
 
 Live private-repository verification is optional and requires a disposable team,
 existing parent scope, accessible published images, independently configured

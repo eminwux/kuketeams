@@ -33,24 +33,44 @@ func newAddCommand(
 	run func(context.Context, initialize.AddOptions) (initialize.Result, error),
 ) *cobra.Command {
 	var opts initialize.AddOptions
+	var name string
 	cmd := &cobra.Command{
-		Use:   "add NAME --source REPOSITORY",
-		Short: "Apply and register a project team from a Git source",
+		Use:   "add DIRECTORY | NAME --source REPOSITORY",
+		Short: "Apply and register a project team from a directory or Git source",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			for _, name := range []string{"branch", "tag", "commit"} {
+			for _, name := range []string{"name", "source", "branch", "tag", "commit"} {
 				if cmd.Flags().Changed(name) {
 					value, _ := cmd.Flags().GetString(name)
 					if strings.TrimSpace(value) == "" {
-						return errors.New("add: explicit revision selector must not be empty")
+						return errors.New("add: explicit name, source, and revision flags must not be empty")
 					}
+				}
+			}
+			opts.Directory = ""
+			info, statErr := os.Stat(args[0])
+			switch {
+			case statErr == nil && info.IsDir():
+				opts.Directory = args[0]
+				opts.Name = name
+			case statErr != nil && !errors.Is(statErr, os.ErrNotExist):
+				return fmt.Errorf("add: cannot inspect directory: %w", statErr)
+			case strings.ContainsAny(args[0], `/\`) || args[0] == "." || args[0] == "..":
+				return fmt.Errorf("add: directory %q is unavailable or is not a directory", args[0])
+			default:
+				if opts.Source == "" {
+					return errors.New("add: use an existing directory or NAME --source REPOSITORY")
+				}
+				opts.Name = args[0]
+				if name != "" {
+					opts.Name = name
 				}
 			}
 			home, err := homeDir()
 			if err != nil {
 				return fmt.Errorf("resolve operator home directory: %w", err)
 			}
-			opts.Name, opts.Home, opts.Root = args[0], home, filepath.Join(home, ".kuke")
+			opts.Home, opts.Root = home, filepath.Join(home, ".kuke")
 			result, err := run(cmd.Context(), opts)
 			if err != nil {
 				return err
@@ -59,19 +79,21 @@ func newAddCommand(
 				cmd.OutOrStdout(),
 				"Applied %d resources; registered team %s: %s\nNo cells created or started.\n",
 				result.Resources,
-				opts.Name,
+				strings.TrimSuffix(filepath.Base(result.EntryPath), ".yaml"),
 				result.EntryPath,
 			)
 			return err
 		},
 	}
 	cmd.Flags().StringVar(&opts.Source, "source", "", "Project Git remote (SCP-style SSH, ssh://, or HTTPS)")
-	cmd.Flags().StringVar(&opts.Branch, "branch", "", "Select a branch (default: remote HEAD branch)")
+	cmd.Flags().
+		StringVar(&opts.Branch, "branch", "", "Select a branch (default: local HEAD for directories, remote HEAD for named sources)")
 	cmd.Flags().StringVar(&opts.Tag, "tag", "", "Select a tag")
 	cmd.Flags().StringVar(&opts.Commit, "commit", "", "Select a full commit object ID")
 	cmd.Flags().StringVar(&opts.Host, "host", "", "kukeond Unix endpoint (overrides KUKEON_HOST and kuke.yaml)")
 	cmd.Flags().StringVar(&opts.Configuration, "configuration", "", "kuke ClientConfiguration path")
-	_ = cmd.MarkFlagRequired("source")
+	cmd.Flags().
+		StringVar(&name, "name", "", "Override the team name (default: local Team metadata.name, then directory basename)")
 	cmd.MarkFlagsMutuallyExclusive("branch", "tag", "commit")
 	return cmd
 }

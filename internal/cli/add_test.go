@@ -82,7 +82,7 @@ func TestAddCLIForwardsOptions(t *testing.T) {
 }
 
 func TestAddCLIRejectsInvalidArgumentsWithoutEffects(t *testing.T) {
-	for _, args := range [][]string{{"--help"}, {"kukeon"}, {"kukeon", "--source", "https://example.test/repo", "--branch", ""}, {"kukeon", "extra", "--source", "https://example.test/repo"}, {"kukeon", "--source", "https://example.test/repo", "--branch", "trunk", "--tag", "v1"}, {"kukeon", "--source", "https://example.test/repo", "--build"}} {
+	for _, args := range [][]string{{"--help"}, {"kukeon"}, {".", "--source", ""}, {".", "--name", ""}, {"/nonexistent/directory"}, {"kukeon", "--source", "https://example.test/repo", "--branch", ""}, {"kukeon", "extra", "--source", "https://example.test/repo"}, {"kukeon", "--source", "https://example.test/repo", "--branch", "trunk", "--tag", "v1"}, {"kukeon", "--source", "https://example.test/repo", "--build"}} {
 		cmd := newAddCommand(
 			func() (string, error) { t.Fatal("resolved home before validation"); return "", nil },
 			func(context.Context, initialize.AddOptions) (initialize.Result, error) {
@@ -101,5 +101,43 @@ func TestAddCLIRejectsInvalidArgumentsWithoutEffects(t *testing.T) {
 		} else if err == nil {
 			t.Fatal("accepted invalid args")
 		}
+	}
+}
+
+func TestAddCLIDirectoryOptionsAndOutput(t *testing.T) {
+	for _, named := range []bool{false, true} {
+		t.Run(map[bool]string{false: "inferred", true: "overridden"}[named], func(t *testing.T) {
+			directory := t.TempDir()
+			cmd := newAddCommand(func() (string, error) { return "/home/operator", nil },
+				func(_ context.Context, opts initialize.AddOptions) (initialize.Result, error) {
+					if opts.Directory != directory || opts.Source != "git@host:owner/project" || opts.Tag != "v1" {
+						t.Fatalf("options=%+v", opts)
+					}
+					expected := ""
+					if named {
+						expected = "chosen"
+					}
+					if opts.Name != expected {
+						t.Fatalf("name=%q", opts.Name)
+					}
+					return initialize.Result{
+						Resources: 2,
+						EntryPath: "/home/operator/.kuke/kuketeam.d/resolved.yaml",
+					}, nil
+				})
+			args := []string{directory, "--source", "git@host:owner/project", "--tag", "v1"}
+			if named {
+				args = append(args, "--name", "chosen")
+			}
+			cmd.SetArgs(args)
+			var out bytes.Buffer
+			cmd.SetOut(&out)
+			if err := cmd.Execute(); err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(out.String(), "registered team resolved:") {
+				t.Fatalf("output=%s", out.String())
+			}
+		})
 	}
 }

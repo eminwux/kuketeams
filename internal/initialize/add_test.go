@@ -172,33 +172,52 @@ func TestAddNativeSSHRevisionsAndRepeat(t *testing.T) {
 	}
 }
 
-func TestAddNativeSSHCommitObjectFormats(t *testing.T) {
+func TestAddNativeSSHRevisionObjectFormats(t *testing.T) {
 	for _, format := range []string{"sha1", sha256ObjectFormat} {
-		t.Run(format, func(t *testing.T) {
-			opts, commit := setupAddObjectFormat(t, format)
-			opts.Commit = commit
-			// A caller's default must not override the selected commit's format.
-			otherFormat := sha256ObjectFormat
-			if format == sha256ObjectFormat {
-				otherFormat = "sha1"
-			}
-			t.Setenv("GIT_DEFAULT_HASH", otherFormat)
-			sources, cleanup, err := materializeSources(t.Context(), config.Defaults{
-				Sources: []config.Source{{Name: "project", URL: opts.Source, Commit: commit}},
-			}, true)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer cleanup()
-			raw, err := fs.ReadFile(sources["project"], "README")
-			if err != nil || string(raw) != "project fixture" {
-				t.Fatalf("commit checkout content = %q, error = %v", raw, err)
-			}
-			if _, err = Add(t.Context(), opts); err != nil {
-				t.Fatal(err)
-			}
-			assertAcceptedAdd(t, opts, "commit", commit)
-		})
+		for _, mode := range []string{"default", "branch", "tag", "annotated-tag", "commit"} {
+			t.Run(format+"/"+mode, func(t *testing.T) {
+				opts, commit := setupAddObjectFormat(t, format)
+				source := config.Source{Name: "project", URL: opts.Source}
+				switch mode {
+				case "branch":
+					opts.Branch, source.Branch = "trunk", "trunk"
+				case "tag":
+					opts.Tag, source.Tag = "v1", "v1"
+				case "annotated-tag":
+					fixtureGit(t, os.Getenv("ADD_FIXTURE_REPO"), "-c", "user.name=Fixture",
+						"-c", "user.email=fixture@example.test", "tag", "-f", "-a", "v1",
+						"-m", "fixture", "--no-sign")
+					opts.Tag, source.Tag = "v1", "v1"
+				case "commit":
+					opts.Commit, source.Commit = commit, commit
+				}
+				// The caller's default must not override the remote's format.
+				otherFormat := sha256ObjectFormat
+				if format == sha256ObjectFormat {
+					otherFormat = "sha1"
+				}
+				t.Setenv("GIT_DEFAULT_HASH", otherFormat)
+				sources, cleanup, err := materializeSources(t.Context(), config.Defaults{
+					Sources: []config.Source{source},
+				}, true)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer cleanup()
+				raw, err := fs.ReadFile(sources["project"], "README")
+				if err != nil || string(raw) != "project fixture" {
+					t.Fatalf("revision checkout content = %q, error = %v", raw, err)
+				}
+				if _, err = Add(t.Context(), opts); err != nil {
+					t.Fatal(err)
+				}
+				acceptedMode := mode
+				if mode == "annotated-tag" {
+					acceptedMode = "tag"
+				}
+				assertAcceptedAdd(t, opts, acceptedMode, commit)
+			})
+		}
 	}
 }
 

@@ -18,6 +18,8 @@ package initialize
 
 import (
 	"context"
+	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -30,6 +32,7 @@ import (
 )
 
 const (
+	sha1CommitLength   = 40
 	sha256ObjectFormat = "sha256"
 	sha256CommitLength = 64
 )
@@ -77,11 +80,11 @@ func materializeSources(ctx context.Context, d config.Defaults, project bool) (m
 		if source.Tag != "" {
 			ref = "refs/tags/" + source.Tag
 		}
-		// Full commit IDs identify the repository's object format. Pin it so
-		// Git's configured default cannot select an incompatible hash format.
-		objectFormat := "sha1"
-		if len(source.Commit) == sha256CommitLength {
-			objectFormat = sha256ObjectFormat
+
+		objectFormat, formatErr := sourceObjectFormat(ctx, url, ref, source.Commit)
+		if formatErr != nil {
+			cleanup()
+			return nil, nil, fmt.Errorf("materialize source %q: %w", source.Name, formatErr)
 		}
 		commands := [][]string{
 			{"init", "--quiet", "--object-format=" + objectFormat, dir},
@@ -102,4 +105,35 @@ func materializeSources(ctx context.Context, d config.Defaults, project bool) (m
 		sources[source.Name] = os.DirFS(dir)
 	}
 	return sources, cleanup, nil
+}
+
+// sourceObjectFormat pins initialization independently of Git's configured default.
+// Commit IDs carry their format; named refs require the remote's advertised ID.
+func sourceObjectFormat(ctx context.Context, remote, ref, commit string) (string, error) {
+	oid := commit
+	if oid == "" {
+		if ref == "" {
+			ref = "HEAD"
+		}
+		output, err := gitremote.Run(ctx, "ls-remote", "--exit-code", "--", remote, ref)
+		if err != nil {
+			return "", err
+		}
+		for _, line := range strings.Split(string(output), "\n") {
+			hash, name, ok := strings.Cut(line, "\t")
+			if ok && name == ref {
+				oid = hash
+				break
+			}
+		}
+	}
+	if _, err := hex.DecodeString(oid); err == nil {
+		switch len(oid) {
+		case sha1CommitLength:
+			return "sha1", nil
+		case sha256CommitLength:
+			return sha256ObjectFormat, nil
+		}
+	}
+	return "", errors.New("source: cannot determine revision object format (Git output withheld)")
 }

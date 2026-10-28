@@ -39,8 +39,8 @@ These additions cannot erase requirements in `Role.spec.needs.image`. The
 selected harness is also a mandatory image capability. One catalog image must
 satisfy the complete set. Catalog order breaks ties; a root-capable image is not
 selected unless `root` is requested. The team name `root` grants no privilege.
-Published registry references are read from `harnesses/images.yaml` in the
-selected harness's source. No registry lookup is made. `Team` and `TeamEntry`
+Published registry references are read from the sibling `images.yaml` beside
+the selected `harness.yaml` in the selected harness's source. No registry lookup is made. `Team` and `TeamEntry`
 have no resolved-image field: the selected catalog entry is returned in
 `Pair.Image`, and its published reference is bound to the blueprint container.
 An update re-resolves it from the current definitions/catalog. Local builds

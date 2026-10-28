@@ -21,10 +21,12 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"text/template"
 
+	"github.com/eminwux/kuketeams/pkg/harness"
 	"gopkg.in/yaml.v3"
 )
 
@@ -40,28 +42,6 @@ func read(t *testing.T, path string) []byte {
 }
 
 func TestCatalogAndBuildClosure(t *testing.T) {
-	var catalog struct {
-		APIVersion string `yaml:"apiVersion"`
-		Kind       string `yaml:"kind"`
-		Spec       struct {
-			Images []struct {
-				Ref     string `yaml:"ref"`
-				Harness string `yaml:"harness"`
-				Image   string `yaml:"image"`
-				Build   struct {
-					Context    string `yaml:"context"`
-					Dockerfile string `yaml:"dockerfile"`
-				} `yaml:"build"`
-				Capabilities []string `yaml:"capabilities"`
-			} `yaml:"images"`
-		} `yaml:"spec"`
-	}
-	if err := yaml.Unmarshal(read(t, "images.yaml"), &catalog); err != nil {
-		t.Fatal(err)
-	}
-	if catalog.Kind != "ImageCatalog" || catalog.APIVersion != "kuketeams.io/v1" {
-		t.Fatal("wrong catalog kind/version")
-	}
 	expected := map[string]bool{
 		"claude":         true,
 		"claude-root":    true,
@@ -72,41 +52,47 @@ func TestCatalogAndBuildClosure(t *testing.T) {
 		"opencode-root":  true,
 	}
 	var tag string
-	for _, image := range catalog.Spec.Images {
-		if !expected[image.Ref] {
-			t.Fatalf("duplicate or unexpected image: %s", image.Ref)
+	for _, name := range []string{"claude", "codex", "opencode"} {
+		h, err := harness.Load(os.DirFS(root), name)
+		if err != nil {
+			t.Fatal(err)
 		}
-		delete(expected, image.Ref)
-		prefix := "ghcr.io/eminwux/kuketeams/" + image.Ref + ":"
-		if !strings.HasPrefix(image.Image, prefix) {
-			t.Fatalf("wrong namespace: %s", image.Image)
+		catalog, err := harness.LoadCatalog(os.DirFS(root), name, h.Metadata.Name)
+		if err != nil {
+			t.Fatal(err)
 		}
-		currentTag := strings.TrimPrefix(image.Image, prefix)
-		if tag != "" && tag != currentTag {
-			t.Fatal("mixed catalog tags")
+		if len(h.Spec.Images) != len(catalog.Spec.Images) {
+			t.Fatal("build/catalog count mismatch")
 		}
-		tag = currentTag
-		if image.Harness != strings.Split(image.Ref, "-")[0] {
-			t.Fatalf("wrong harness: %s", image.Ref)
+		for i, image := range h.Spec.Images {
+			if !expected[image.Name] {
+				t.Fatalf("duplicate or unexpected image %s", image.Name)
+			}
+			delete(expected, image.Name)
+			published := catalog.Spec.Images[i]
+			prefix := "ghcr.io/eminwux/kuketeams/" + image.Name + ":"
+			if !strings.HasPrefix(published.Image, prefix) {
+				t.Fatalf("wrong namespace: %s", published.Image)
+			}
+			current := strings.TrimPrefix(published.Image, prefix)
+			if tag != "" && tag != current {
+				t.Fatal("mixed catalog tags")
+			}
+			tag = current
+			if !slices.Equal(image.Capabilities, published.Capabilities) {
+				t.Fatal("capability drift")
+			}
+			if image.Build.Context != "harnesses/"+name {
+				t.Fatal("context escapes harness directory")
+			}
+			checkDockerfile(t, name, filepath.Join(name, image.Build.Dockerfile))
 		}
-		found := false
-		for _, capability := range image.Capabilities {
-			found = found || capability == image.Harness
-		}
-		if !found {
-			t.Fatalf("missing harness capability: %s", image.Ref)
-		}
-		if image.Build.Context != "harnesses/"+image.Harness {
-			t.Fatal("context escapes harness directory")
-		}
-		path := filepath.Join(image.Harness, image.Build.Dockerfile)
-		checkDockerfile(t, image.Harness, path)
 	}
 	if len(expected) != 0 {
 		t.Fatalf("missing images: %v", expected)
 	}
 	for _, name := range []string{"root", "user"} {
-		if !strings.Contains(string(read(t, "base/Dockerfile."+name)), "FROM ${REGISTRY}/base:${TAG}") {
+		if !strings.Contains(string(read(t, "base/Dockerfile."+name)), "FROM ${IMAGE_PREFIX}base:${TAG}") {
 			t.Fatal("broken base dependency")
 		}
 	}
@@ -211,10 +197,10 @@ func checkDockerfile(t *testing.T, harness, path string) {
 				read(t, filepath.Join(harness, source))
 			}
 		case "FROM":
-			if !strings.HasPrefix(fields[1], "${REGISTRY}/base-") || !strings.HasSuffix(fields[1], ":${TAG}") {
+			if !strings.HasPrefix(fields[1], "${IMAGE_PREFIX}base-") || !strings.HasSuffix(fields[1], ":${TAG}") {
 				t.Fatalf("unpackaged base: %s", line)
 			}
-			base := strings.TrimSuffix(strings.TrimPrefix(fields[1], "${REGISTRY}/base-"), ":${TAG}")
+			base := strings.TrimSuffix(strings.TrimPrefix(fields[1], "${IMAGE_PREFIX}base-"), ":${TAG}")
 			read(t, "base/Dockerfile."+base)
 		}
 	}
@@ -256,6 +242,11 @@ func TestSourceInventoryIsPackaged(t *testing.T) {
 		fields := strings.Fields(line)
 		if len(fields) != 4 {
 			t.Fatalf("invalid upstream inventory row: %q", line)
+		}
+		// Keep the deleted central catalog's original blob in the historical
+		// inventory, even though release catalogs now live beside each Harness.
+		if fields[3] == "harnesses/images.yaml" {
+			continue
 		}
 		path := filepath.Join("../..", fields[3])
 		info, err := os.Stat(path)

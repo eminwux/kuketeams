@@ -33,6 +33,7 @@ import (
 	model "github.com/eminwux/kukeon/pkg/api/model/kuketeams"
 	api "github.com/eminwux/kukeon/pkg/api/model/v1beta1"
 	"github.com/eminwux/kuketeams/pkg/config"
+	"github.com/eminwux/kuketeams/pkg/harness"
 	"gopkg.in/yaml.v3"
 )
 
@@ -61,7 +62,7 @@ type Result struct {
 type Pair struct {
 	Role      string
 	Harness   string
-	Image     model.ImageCatalogEntry
+	Image     harness.CatalogImage
 	Blueprint *api.CellBlueprintDoc
 	Config    *api.CellConfigDoc
 	Secrets   []SecretRequirement
@@ -180,19 +181,18 @@ func composePair(
 	if !ok {
 		return Pair{}, errors.New("role does not support selected harness")
 	}
-	var harness model.Harness
-	if err := load(hfs, path.Join(hsel.Path, "harness.yaml"), &harness); err != nil {
+	definition, err := harness.Load(hfs, hsel.Path)
+	if err != nil {
 		return Pair{}, err
 	}
-	if harness.APIVersion != config.APIVersion || harness.Kind != "Harness" || harness.Metadata.Name != hsel.Name ||
-		!config.ValidName(harness.Spec.MakeTarget) || harness.Spec.SkillPath == "" {
-		return Pair{}, errors.New("harness.yaml: invalid header, makeTarget, or skillPath")
+	if definition.Metadata.Name != hsel.Name {
+		return Pair{}, fmt.Errorf("%s/harness.yaml: metadata.name must match selected harness %q", hsel.Path, hsel.Name)
 	}
 	if err := checkAssets(rfs, selection.Path, &role, settings, hsel.Name); err != nil {
 		return Pair{}, err
 	}
-	var catalog model.ImageCatalog
-	if err := load(hfs, "harnesses/images.yaml", &catalog); err != nil {
+	catalog, err := harness.LoadCatalog(hfs, hsel.Path, definition.Metadata.Name)
+	if err != nil {
 		return Pair{}, err
 	}
 	var extra []string
@@ -200,9 +200,9 @@ func composePair(
 		extra = selection.Needs.Image
 	}
 	needs := union(role.Spec.Needs.Image, extra)
-	image, err := SelectImage(&catalog, hsel.Name, needs)
+	image, err := SelectImage(catalog, hsel.Name, needs)
 	if err != nil {
-		return Pair{}, err
+		return Pair{}, fmt.Errorf("%s/images.yaml: %w", hsel.Path, err)
 	}
 	repo, ok := runtimeSource(sources, selection.Source)
 	if !ok {
@@ -211,7 +211,7 @@ func composePair(
 	if settingsErr := checkSettings(hsel.Name, settings); settingsErr != nil {
 		return Pair{}, settingsErr
 	}
-	bp, err := render(hfs, hsel.Path, &harness, &role, selection, repo, image, needs, sources, opts)
+	bp, err := render(hfs, hsel.Path, definition, &role, selection, repo, image, needs, sources, opts)
 	if err != nil {
 		return Pair{}, err
 	}
@@ -240,7 +240,7 @@ func composePair(
 	if bindErr := bind(&pair, cfg, selection, &role, sources, team); bindErr != nil {
 		return Pair{}, bindErr
 	}
-	pair.Seeds, err = resolveSeeds(&harness, hsel.Name, opts.TeamDir)
+	pair.Seeds, err = resolveSeeds(definition, hsel.Name, opts.TeamDir)
 	if err != nil {
 		return Pair{}, err
 	}
@@ -291,28 +291,27 @@ func runtimeSource(sources []config.Source, name string) (config.Source, bool) {
 
 // SelectImage preserves catalog order and requires one published image to carry
 // the selected harness plus all mandatory and additive capabilities.
-func SelectImage(c *model.ImageCatalog, harness string, needs []string) (model.ImageCatalogEntry, error) {
-	if c == nil || c.APIVersion != config.APIVersion || c.Kind != "ImageCatalog" {
-		return model.ImageCatalogEntry{}, errors.New("invalid ImageCatalog header")
+func SelectImage(c *harness.ImageCatalog, name string, needs []string) (harness.CatalogImage, error) {
+	if err := c.Validate(name); err != nil {
+		return harness.CatalogImage{}, err
 	}
-	required := union(needs, []string{harness})
+	required := union(needs, []string{name})
 	for _, image := range c.Spec.Images {
-		if image.Harness != harness ||
-			(slices.Contains(image.Capabilities, "root") && !slices.Contains(needs, "root")) {
+		if slices.Contains(image.Capabilities, "root") && !slices.Contains(needs, "root") {
 			continue
 		}
 		if !slices.ContainsFunc(required, func(s string) bool { return !slices.Contains(image.Capabilities, s) }) {
 			if !published(image.Image) {
-				return model.ImageCatalogEntry{}, errors.New(
+				return harness.CatalogImage{}, errors.New(
 					"matching catalog image requires a registry-qualified published reference",
 				)
 			}
 			return image, nil
 		}
 	}
-	return model.ImageCatalogEntry{}, fmt.Errorf(
-		"no published image for harness %q with all capabilities %v; update harnesses/images.yaml",
-		harness,
+	return harness.CatalogImage{}, fmt.Errorf(
+		"no published image for harness %q with all capabilities %v; update the selected harness images.yaml",
+		name,
 		required,
 	)
 }
@@ -364,7 +363,7 @@ func (r *Result) MarshalYAML() ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-func resolveSeeds(harness *model.Harness, harnessName, teamDir string) ([]model.HarnessSeed, error) {
+func resolveSeeds(harness *harness.Harness, harnessName, teamDir string) ([]model.HarnessSeed, error) {
 	var out []model.HarnessSeed
 	for _, seed := range harness.Spec.Seeds {
 		if !config.SafePath(teamDir) {

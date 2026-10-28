@@ -5,7 +5,7 @@
 # #792) reads:
 #   - this template;
 #   - the Role document at <ROLE>/role.yaml;
-#   - the ImageCatalog at harnesses/images.yaml (images-migration carve-out);
+#   - the sibling generated HarnessImageCatalog in images.yaml;
 #   - the TeamsConfig (host) and ProjectTeam (per project) for operator-facts
 #     and per-project bindings;
 # and emits a kukeon v1beta1 CellBlueprint equivalent to the hand-written
@@ -13,7 +13,7 @@
 #
 # Conventions in this template:
 #   - {{ .role.name }} is substituted with the Role.metadata.name.
-#   - {{ .image }} resolves via ImageCatalog from Role.spec.needs.image capabilities
+#   - {{ .image }} resolves via HarnessImageCatalog from Role.spec.needs.image capabilities
 #     plus this harness's own name (claude): the harness a role runs under is
 #     fixed by which per-harness blueprint renders, not declared in needs.image,
 #     so the selector contributes "claude" here and matches images whose

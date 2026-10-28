@@ -29,6 +29,6 @@ done
   printf 'The amd64 binary is smoke-tested; arm64 is cross-built and structurally verified.\n\n'
   printf '### Harness images\n\n'
   printf 'Published for `linux/amd64` and `linux/arm64`:\n\n'
-  awk '/^[[:space:]]*image:/ { printf "- `%s`\n", $2 }' harnesses/images.yaml
+  awk '/^[[:space:]]*- image:/ { printf "- `%s`\n", $3 }' harnesses/*/images.yaml
   printf '\nBuild intermediates `base`, `base-user`, and `base-root` are published in the same registry namespace and tag.\n'
 } > "$output/notes.md"

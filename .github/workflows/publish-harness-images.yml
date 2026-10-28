@@ -30,6 +30,9 @@ jobs:
             echo "::error::Release tags must point to a commit already on main."
             exit 1
           fi
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
       - name: Verify release tag and catalog
         run: ./harnesses/release-images.sh "$GITHUB_REF_NAME" --check
 
@@ -51,13 +54,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
       - name: Check release tag and catalog before publication
         run: ./harnesses/release-images.sh "$GITHUB_REF_NAME" --check
       - name: Free space for the complete image set
         run: sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
         with:
@@ -73,7 +76,7 @@ jobs:
       - name: Publish bases and leaves through the linked dependency graph
         env:
           TAG: ${{ github.ref_name }}
-        run: make -C harnesses images MODE=push
+        run: make -C harnesses images REGISTRY="$REGISTRY" TAG="$TAG" PLATFORMS="$PLATFORMS" MODE=push
 
   release:
     name: Publish GitHub Release

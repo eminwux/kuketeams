@@ -74,9 +74,11 @@ version run with an empty environment and temporary home, which must remain empt
 The arm64 output is cross-built and structurally checked; it is not runtime-tested.
 Tests run natively, with the race detector, before either CI build starts.
 
-The [Binary CI workflow](https://github.com/eminwux/kuketeams/actions/workflows/build.yaml)
+The [Test workflow](https://github.com/eminwux/kuketeams/actions/workflows/test.yaml)
 runs tests on PRs targeting `main`, pushes to `main`, and manual dispatch, with
-read-only repository permissions. Distribution builds run only when called by
+read-only repository permissions. The separate
+[Release binaries workflow](https://github.com/eminwux/kuketeams/actions/workflows/build.yaml)
+runs tests and distribution builds only when called by
 the release workflow after it verifies a version tag's commit belongs to `main`.
 Open a successful release run and download its artifact for your
 architecture: `kuketeams-linux-amd64-` or `kuketeams-linux-arm64-` followed by the
@@ -92,7 +94,7 @@ or publish images or releases.
 For release tags, a read-only source gate fetches `main` and requires the tagged
 commit to be an ancestor of its current tip. Tags on unmerged branches fail
 before any binary build or image publication. The image publication workflow
-then calls Binary CI with the tag as the CLI version. After tests, both binary
+then calls Release binaries with the tag as the CLI version. After tests, both binary
 builds, and image publication succeed,
 it creates a [GitHub Release](https://github.com/eminwux/kuketeams/releases) with
 generated change notes, source commit, and published harness image references.

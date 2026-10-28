@@ -13,3 +13,5 @@ ENV NPM_CONFIG_PREFIX=/home/user/.local
 ENV PATH=/home/user/.local/bin:$PATH
 
 RUN npm install -g @openai/codex@"${CODEX_VERSION}"
+
+COPY Makefile.start /opt/kuketeams/harness/Makefile.start

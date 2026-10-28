@@ -365,20 +365,15 @@ func TestConflictsPreserveHome(t *testing.T) {
 	}
 }
 
-// The fixtures are the complete manifests from PR #11 at the revision recorded
-// in the role guide. Prefer the actual packaged files as soon as they land.
+// Native installation targets must agree with the packaged Harness skill paths.
 func TestHarnessContracts(t *testing.T) {
 	root := repoRoot(t)
 	for _, name := range []string{"claude", "codex", "opencode"} {
 		t.Run(name, func(t *testing.T) {
 			manifest := filepath.Join(root, "harnesses", name, "harness.yaml")
-			if _, err := os.Stat(manifest); os.IsNotExist(err) {
-				manifest = filepath.Join("testdata", name+".harness.yaml")
-			}
 			var harness struct {
 				Spec struct {
-					SkillPath  string `yaml:"skillPath"`
-					MakeTarget string `yaml:"makeTarget"`
+					SkillPath string `yaml:"skillPath"`
 				} `yaml:"spec"`
 			}
 			if err := yaml.Unmarshal(read(t, manifest), &harness); err != nil {
@@ -388,7 +383,7 @@ func TestHarnessContracts(t *testing.T) {
 				t.Fatalf("unexpected skill path: %s", harness.Spec.SkillPath)
 			}
 			home := t.TempDir()
-			if output, err := runMake(t, root, home, harness.Spec.MakeTarget); err != nil {
+			if output, err := runMake(t, root, home, map[string]string{"claude": "claude", "codex": "codex", "opencode": "opencode-openrouter"}[name]); err != nil {
 				t.Fatalf("root make target: %s: %v", output, err)
 			}
 			installed := filepath.Join(

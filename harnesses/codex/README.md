@@ -23,7 +23,9 @@ It is not a transaction across skills and policy: a filesystem failure during
 installation requires rerunning make. Startup stops on any failure, before
 launching Codex. Do not rematerialize during an active session.
 
-The blueprint launches Codex directly with shell commands. Assigned tasks use
+The Harness owns its complete onInit shell script and calls the image-installed
+`Makefile.start setup` before launching Codex. See the
+[renderer/startup contract](../templates.md). Assigned tasks use
 `codex --ask-for-approval never exec`; interactive launches use the role's
 approval policy. Both use the selected sandbox. Current role defaults select
 `danger-full-access` and `never`. A role can explicitly choose a narrower
@@ -31,8 +33,8 @@ sandbox in `role.yaml`; its approval setting applies to interactive sessions,
 while assigned tasks always use `never`. These CLI settings govern Codex inside
 the cell; the cell is its outer boundary, and a separate session tool runner
 may apply its own sandbox.
-Project cells start in the resolved project checkout; singleton cells start in
-the agents checkout.
+Cells start in the selected `initialPath`, defaulting to `/home/user`. Role
+instructions and skills are installed before changing to that directory.
 
 Project `CLAUDE.md` is configured as a fallback after native instruction files,
 and the instruction allowance is 128 KiB. Shared references stay in the agents
@@ -42,7 +44,7 @@ checkout and are read on demand. See the official
 The images pin Codex 0.163.0 and install a managed reflection `Stop` hook in
 `/etc/codex/requirements.toml`, with its Python handler under
 `/opt/agents/codex/hooks/`. Python is already provided by the base image.
-The blueprint supplies `AGENTS_ROLE` for both assigned-task and interactive
+The Harness environment supplies `AGENTS_ROLE` for both assigned-task and interactive
 sessions. Supported roles are `dev`, `pm`, `pr-reviewer`, `meta-dev`, `meta-pm`,
 and `meta-reviewer`; other roles and launches without `AGENTS_ROLE` are no-ops.
 

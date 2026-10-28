@@ -15,3 +15,5 @@ RUN npm install -g opencode-ai@"${OPENCODE_VERSION}"
 # script) so the `instructions` array can point at the role's playbook.
 # OPENROUTER_MODEL / OPENROUTER_API_KEY are filled at run time from the
 # cell env via opencode's `{env:NAME}` resolution.
+
+COPY Makefile.start /opt/kuketeams/harness/Makefile.start

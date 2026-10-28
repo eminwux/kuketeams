@@ -46,3 +46,5 @@ ENV PATH=/home/user/.local/bin:$PATH
 RUN curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLAUDE_CODE_VERSION}" \
  && echo 'export PATH=$HOME/.local/bin:$PATH' >> /home/user/.bashrc \
  && rm -f $HOME/.claude.json
+
+COPY Makefile.start /opt/kuketeams/harness/Makefile.start

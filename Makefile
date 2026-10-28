@@ -24,7 +24,7 @@ test-harnesses:
 	MODE=check TAG=v0.0.0-test PLATFORMS=linux/amd64,linux/arm64 ./harnesses/build-images.sh --print | python3 harnesses/tests/check_plan.py
 	REGISTRY= TAG=dev MODE=check PLATFORMS=linux/amd64,linux/arm64 ./harnesses/build-images.sh --print | python3 harnesses/tests/check_plan.py
 
-# One installer serves every role and the public harness makeTarget names.
+# One installer serves every role and the public role installation targets.
 ROLE ?= roles/operator
 .PHONY: claude codex opencode-openrouter
 claude codex opencode-openrouter:

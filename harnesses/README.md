@@ -1,7 +1,7 @@
 # Public harness assets
 
 Kuketeams owns these Dockerfiles, catalogs, harness definitions, blueprint
-templates, sibling partials, and Codex policy/hooks. They were copied from
+templates, shared partials, and Codex policy/hooks. They were copied from
 [eminwux/agents at a5dbb59c3942621c5d52ba321b1d81e5987a5f3a](https://github.com/eminwux/agents/tree/a5dbb59c3942621c5d52ba321b1d81e5987a5f3a).
 The source checkout was re-inventoried at that revision before copying; every
 tracked `harnesses/` file is included. [UPSTREAM.tsv](UPSTREAM.tsv) records the
@@ -51,8 +51,12 @@ variants require explicit `root` capability opt-in. `pkg/harness` owns these
 source document models; kukeon's Role, seed and daemon document models remain
 unchanged, so this schema migration requires no upstream kukeon release.
 
-[templates.md](templates.md) preserves the upstream template/partial contract.
-Each Harness resolves its template within its own directory. Role installation,
+[templates.md](templates.md) defines the shared renderer and startup contract.
+All harnesses select the bundled `kukeon/v1beta1` template set. Their complete
+`spec.onInit` scripts call image-owned `Makefile.start setup` and launch the agent.
+Container assets and Dockerfiles live under each harness's `context/`; authored
+build contexts point there, with Dockerfile names relative to that context.
+The outer Makefile remains the host image-build entrypoint. Role installation,
 operator mounts, credentials, and daemon volumes remain runtime inputs. They are
 not Docker COPY inputs. CLI local `--build` and runtime image import are outside
 this build/release workflow.
@@ -99,7 +103,7 @@ share freshly built transitive bases inside BuildKit without registry round
 trips. See the [Docker Bake context documentation](https://docs.docker.com/build/bake/contexts/).
 
 `.tmpl.yaml` files contain Go templates, so generic YAML/Prettier hooks exclude
-only those files. Go tests parse every sibling partial and render project and
+only those files. Go tests load the shared bundled partials and render project and
 singleton fixtures for user/root envelopes before checking the resulting YAML.
 
 The native smoke target checks the user/root bases and all seven harness

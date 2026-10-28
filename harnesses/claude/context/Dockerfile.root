@@ -17,3 +17,5 @@ RUN curl -fsSL https://claude.ai/install.sh | bash -s -- "${CLAUDE_CODE_VERSION}
 # Drop the default ~/.claude.json the native install bakes in: every profile's
 # onInit seeds login state via `[ -f ~/.claude.json ] || cp .claude.json.seed`,
 # and a baked-in file would short-circuit that guard and skip the seed copy.
+
+COPY Makefile.start /opt/kuketeams/harness/Makefile.start

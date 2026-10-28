@@ -107,7 +107,8 @@ Supported values are clean absolute Unix paths (including `/`), `$HOME`, and
 Relative paths, `~`, `${HOME}`, other variables, shell expressions, whitespace,
 empty strings, and `.`/`..` traversal components are rejected with a field error.
 Omit the field to use the in-cell harness user's `$HOME`. The leading `$HOME`
-token is expanded by the cell shell, never by init or the composition host.
+token resolves to the renderer profile's effective HOME (`/home/user`) before
+emitting the `INITIAL_PATH` environment value; it never uses the host HOME.
 Directories must already exist; failed `cd` stops startup before the harness runs.
 
 This rule applies consistently to Codex, Claude, and OpenCode. `initialPath`
@@ -156,11 +157,14 @@ of selected blueprints; a key declared only by an unselected harness also fails.
 `AGENT_NAME` defaults to the full resource identity; legacy `ROLE` parameter
 requests receive the selected role path. Parameters must not hold credentials:
 use structural secret bindings instead. Undeclared role parameters, unsupported
-mount selectors, missing settings/assets/partials, and unsupported harness
+mount selectors, missing settings/assets, and unsupported harness
 settings fail composition with the role/harness context.
 
-Role launchers use `make -C <role-source-target> <harness.makeTarget>
-ROLE=<selected-role-path>`. Claude's settings path is relative to that role.
+Harness-owned ordered `spec.onInit` scripts call the image-installed
+`/opt/kuketeams/harness/Makefile.start setup`, which adapts to the role checkout's
+installation targets using `ROLE_SOURCE_DIR` and `ROLE_PATH`. Startup then uses
+`INITIAL_PATH`; the harness source need not be checked out in the cell.
+Claude's settings path is relative to that role.
 Codex keeps sandbox/approval settings (root images retain their explicit root
 launch behavior). OpenCode materializes the role's configuration instead of
 overwriting it with a generated heredoc, and only requests skipped permissions
@@ -230,10 +234,13 @@ result, err := compose.Compose(cfg, config.Operator(), compose.Options{
 ```
 
 The caller resolves/fetches/pins the effective sources and supplies each named
-filesystem. Definition paths are relative to those roots. Harness manifests name
-their template; all sibling `*.tmpl.yaml` partials are parsed with `upper` and
-pipeline-compatible `replace`. Missing template context fails rather than
-silently rendering `<no value>`.
+filesystem. Definition paths are relative to those roots. Harness manifests
+select `renderer: kukeon/v1beta1`; its single template set and shared partials
+are embedded in the executable, independently of those roots. Local templates
+cannot override it. See the [renderer contract](../harnesses/templates.md) for
+complete Harness examples, startup inputs, external-package migration, supported
+daemon prerequisites, and the path for future schema fields. Unsupported fields,
+renderer identifiers, and legacy declarations fail with actionable diagnostics.
 
 `Result.Pairs` follows role order then harness order. Each pair exposes:
 

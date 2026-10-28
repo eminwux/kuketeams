@@ -49,6 +49,26 @@ func fixtureGit(t *testing.T, dir string, args ...string) string {
 
 // Use actual Git object transfer through a controlled OpenSSH-compatible shim.
 // No provider, real identity, network host, or recorded credential is involved.
+func setupAddRun(t *testing.T) Options {
+	t.Helper()
+	opts := setupRun(t)
+	cfg := &config.TeamsConfig{
+		APIVersion: config.APIVersion,
+		Kind:       config.Kind,
+		Spec:       config.Spec{Defaults: config.Operator().Spec},
+	}
+	cfg.Spec.Defaults.Harnesses = cfg.Spec.Defaults.Harnesses[:1]
+	cfg.Spec.Defaults.Harnesses[0].Default = true
+	var raw bytes.Buffer
+	if err := config.Encode(&raw, cfg); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(opts.Root, "kuketeams.yaml"), raw.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return opts
+}
+
 func setupAdd(t *testing.T) (AddOptions, string) {
 	t.Helper()
 	return setupAddObjectFormat(t, "sha1")
@@ -96,7 +116,7 @@ exec git-upload-pack "$ADD_FIXTURE_REPO"
 	t.Setenv("ADD_FIXTURE_REPO", repo)
 	t.Setenv("SSH_AUTH_SOCK", "/fixture/agent")
 	t.Setenv("GIT_SSH_COMMAND", "'"+strings.ReplaceAll(shim, "'", "'\\''")+"'")
-	opts := AddOptions{Options: setupRun(t), Name: "kukeon", Source: "git@work-alias:owner/project.git"}
+	opts := AddOptions{Options: setupAddRun(t), Name: "kukeon", Source: "git@work-alias:owner/project.git"}
 	return opts, commit
 }
 

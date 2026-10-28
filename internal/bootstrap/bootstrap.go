@@ -113,27 +113,6 @@ func initialConfig(git *config.Git) *config.TeamsConfig {
 		APIVersion: config.APIVersion, Kind: config.Kind,
 		Spec: config.Spec{
 			Git: git,
-			Defaults: config.Defaults{
-				Sources: []config.Source{
-					{
-						Name:      "kuketeams",
-						URL:       "github.com/eminwux/kuketeams",
-						Branch:    "main",
-						ClonePath: "/home/user/kuketeams",
-					},
-				},
-				Roles: []config.Role{
-					{
-						Name:   "operator",
-						Source: "kuketeams",
-						Path:   "roles/operator",
-						Needs:  &config.Needs{Image: []string{"go"}},
-					},
-				},
-				Harnesses: []config.Harness{
-					{Name: "codex", Source: "kuketeams", Path: "harnesses/codex", Default: true},
-				},
-			},
 		},
 	}
 }

@@ -153,7 +153,7 @@ func TestTemplatesWithSiblingPartials(t *testing.T) {
 					data := map[string]any{
 						"makeTarget": harness,
 						"role": map[string]any{
-							"path": "roles/operator", "sourceDir": "/home/user/kuketeams",
+							"path": "roles/operator", "sourceDir": "/home/user/kuketeams", "initialPath": `"$HOME"`,
 							"name": "fixture",
 						}, "realm": "default", "space": "default", "stack": "default", "image": "fixture:latest",
 						"needs": map[string]any{

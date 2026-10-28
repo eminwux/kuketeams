@@ -17,6 +17,7 @@
 package initialize
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -32,6 +33,7 @@ import (
 	api "github.com/eminwux/kukeon/pkg/api/model/v1beta1"
 	"github.com/eminwux/kuketeams/pkg/compose"
 	"github.com/eminwux/kuketeams/pkg/config"
+	"gopkg.in/yaml.v3"
 )
 
 type fakeClient struct {
@@ -115,10 +117,26 @@ func (f *fakeClient) ApplyDocumentsForTeam(
 	f.raw = raw
 	f.team = team
 	if f.resources == nil {
-		return kukeonv1.ApplyDocumentsResult{Resources: []kukeonv1.ApplyResourceResult{
-			{Kind: "CellBlueprint", Name: "root-operator-codex", Action: "created"},
-			{Kind: "CellConfig", Name: "root-operator-codex", Action: "unchanged"},
-		}}, f.applyErr
+		var resources []kukeonv1.ApplyResourceResult
+		decoder := yaml.NewDecoder(bytes.NewReader(raw))
+		for {
+			var doc struct {
+				Kind     string `yaml:"kind"`
+				Metadata struct {
+					Name string `yaml:"name"`
+				} `yaml:"metadata"`
+			}
+			if err := decoder.Decode(&doc); errors.Is(err, io.EOF) {
+				break
+			} else if err != nil {
+				panic(err)
+			}
+			resources = append(
+				resources,
+				kukeonv1.ApplyResourceResult{Kind: doc.Kind, Name: doc.Metadata.Name, Action: "created"},
+			)
+		}
+		return kukeonv1.ApplyDocumentsResult{Resources: resources}, f.applyErr
 	}
 	return kukeonv1.ApplyDocumentsResult{Resources: f.resources}, f.applyErr
 }

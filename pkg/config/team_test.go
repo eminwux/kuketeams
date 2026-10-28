@@ -260,3 +260,81 @@ func TestProjectSourceIsAdditiveAndRetainsInheritance(t *testing.T) {
 		t.Fatal("collision silently overwrote source")
 	}
 }
+
+func TestInitialPathAndHarnessSelection(t *testing.T) {
+	cfg, err := config.Decode(strings.NewReader(`apiVersion: kuketeams.io/v1
+kind: TeamsConfig
+spec:
+  defaults:
+    sources: [{name: defs, url: github.com/example/defs, branch: main}]
+    roles:
+      - {name: dev, source: defs, path: dev, initialPath: /home/user/work, harness: claude}
+      - {name: pm, source: defs, path: pm, initialPath: $HOME}
+    harnesses:
+      - {name: codex, source: defs, path: harnesses/codex, default: true}
+      - {name: claude, source: defs, path: harnesses/claude}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	team := config.Root()
+	inherited, err := config.Resolve(cfg, team)
+	if err != nil || len(inherited.Roles) != 2 || inherited.Roles[0].InitialPath != "/home/user/work" ||
+		inherited.Roles[1].InitialPath != "$HOME" {
+		t.Fatalf("inheritance: %+v, %v", inherited, err)
+	}
+	for _, value := range []string{"", "$HOME", "$HOME/work", "/opt/work", "/"} {
+		team.Spec.Roles = []config.Role{{Name: "other", Source: "defs", Path: "dev", InitialPath: value}}
+		resolved, resolveErr := config.Resolve(cfg, team)
+		if resolveErr != nil || len(resolved.Roles) != 1 || resolved.Roles[0].InitialPath != value {
+			t.Fatalf("replacement: %+v, %v", resolved, resolveErr)
+		}
+		entry, entryErr := config.Entry(team)
+		if entryErr != nil {
+			t.Fatal(entryErr)
+		}
+		raw, marshalErr := yaml.Marshal(entry)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		decoded, decodeErr := config.DecodeEntry(bytes.NewReader(raw))
+		if decodeErr != nil || !reflect.DeepEqual(decoded.Team(), team) {
+			t.Fatalf("round trip: %s: %v", raw, decodeErr)
+		}
+		raw, marshalErr = yaml.Marshal(team)
+		if marshalErr != nil {
+			t.Fatal(marshalErr)
+		}
+		parsed, parseErr := config.DecodeTeam(bytes.NewReader(raw))
+		if parseErr != nil || !reflect.DeepEqual(parsed, team) {
+			t.Fatalf("Team decoding: %v", parseErr)
+		}
+	}
+	// A Team list selects both harnesses without either being a default.
+	team.Spec.Harnesses = []config.Harness{
+		{Name: "codex", Source: "defs", Path: "codex"},
+		{Name: "claude", Source: "defs", Path: "claude"},
+	}
+	if _, err = config.Resolve(cfg, team); err != nil {
+		t.Fatal(err)
+	}
+	for _, value := range []string{"relative", "~", "${HOME}", "$USER", "$HOME/../elsewhere", "/tmp/../work", "/tmp/a b", "/tmp/$(id)", "/tmp/a\n", "$HOME/", " "} {
+		team.Spec.Roles[0].InitialPath = value
+		if _, err = config.Resolve(cfg, team); err == nil || !strings.Contains(err.Error(), "initialPath") {
+			t.Fatalf("accepted invalid path %q: %v", value, err)
+		}
+	}
+	for _, kind := range []string{"Team", "TeamEntry"} {
+		for _, value := range []string{"true", "false"} {
+			raw := "apiVersion: kuketeams.io/v1\nkind: " + kind + "\nmetadata: {name: test}\nspec:\n  harnesses: [{name: codex, source: defs, path: codex, default: " + value + "}]\n"
+			if kind == "Team" {
+				_, err = config.DecodeTeam(strings.NewReader(raw))
+			} else {
+				_, err = config.DecodeEntry(strings.NewReader(raw))
+			}
+			if err == nil || !strings.Contains(err.Error(), "supported only in TeamsConfig") {
+				t.Fatalf("accepted team default: %v", err)
+			}
+		}
+	}
+}

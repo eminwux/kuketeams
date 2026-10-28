@@ -150,7 +150,12 @@ func render(source fs.FS, hpath string, h *model.Harness, role *model.Role, sele
 	}
 	ctx := map[string]any{
 		"realm": opts.Scope.Realm, "space": opts.Scope.Space, "stack": opts.Scope.Stack, "image": image.Image,
-		"role":       map[string]any{"name": role.Metadata.Name, "path": selection.Path, "sourceDir": repo.ClonePath},
+		"role": map[string]any{
+			"name":        role.Metadata.Name,
+			"path":        selection.Path,
+			"sourceDir":   repo.ClonePath,
+			"initialPath": initialPathShell(selection.InitialPath),
+		},
 		"makeTarget": h.Spec.MakeTarget,
 		"needs": map[string]any{
 			"image":  needs,
@@ -176,4 +181,15 @@ func render(source fs.FS, hpath string, h *model.Harness, role *model.Role, sele
 		return nil, errors.New("template must render a v1beta1 CellBlueprint with containers")
 	}
 	return &bp, nil
+}
+
+// initialPathShell expands only the validated leading HOME token at runtime.
+func initialPathShell(value string) string {
+	if value == "" || value == "$HOME" {
+		return `"$HOME"`
+	}
+	if suffix, ok := strings.CutPrefix(value, "$HOME/"); ok {
+		return `"$HOME/` + suffix + `"`
+	}
+	return `"` + value + `"`
 }

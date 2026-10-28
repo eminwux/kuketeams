@@ -143,11 +143,15 @@ func validateSources(list []Source, sources map[string]bool) error {
 }
 
 func validateDefaults(d *Defaults) error {
+	return validateSelections(d, false)
+}
+
+func validateSelections(d *Defaults, explicitHarnesses bool) error {
 	sources, roles, harnesses := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	if err := validateSources(d.Sources, sources); err != nil {
 		return err
 	}
-	defaultHarness := false
+	defaultHarness := explicitHarnesses
 	for i, h := range d.Harnesses {
 		field := fmt.Sprintf("spec.defaults.harnesses[%d]", i)
 		if err := unique(field+".name", h.Name, harnesses); err != nil {
@@ -155,6 +159,9 @@ func validateDefaults(d *Defaults) error {
 		}
 		if err := selection(field, h.Source, h.Path, sources); err != nil {
 			return err
+		}
+		if h.Default && defaultHarness {
+			return fmt.Errorf("%s.default: at most one default harness is permitted in TeamsConfig", field)
 		}
 		defaultHarness = defaultHarness || h.Default
 	}
@@ -164,6 +171,9 @@ func validateDefaults(d *Defaults) error {
 			return err
 		}
 		if err := selection(field, role.Source, role.Path, sources); err != nil {
+			return err
+		}
+		if err := validateInitialPath(field+".initialPath", role.InitialPath); err != nil {
 			return err
 		}
 		if role.Harness != "" {
@@ -213,4 +223,26 @@ func selection(field, source, definition string, sources map[string]bool) error 
 		return fmt.Errorf("%s.path: must be a nonempty repository-relative path within the source root", field)
 	}
 	return nil
+}
+
+// validateInitialPath allows only literal clean absolute paths and a leading
+// $HOME token. No general shell expansion is performed.
+func validateInitialPath(field, value string) error {
+	if err := validUTF8(field, value); err != nil {
+		return err
+	}
+	if value == "" || value == "$HOME" {
+		return nil
+	}
+	suffix, home := strings.CutPrefix(value, "$HOME/")
+	if home {
+		value = "/" + suffix
+	}
+	if value == "/" && !home || SafePath(value) {
+		return nil
+	}
+	return fmt.Errorf(
+		"%s: use a clean absolute Unix path, $HOME, or $HOME/subdirectory (letters, digits, _, ., / and - only)",
+		field,
+	)
 }

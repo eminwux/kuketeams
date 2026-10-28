@@ -139,11 +139,7 @@ spec:
             - script: |
                 make -C {{ .role.sourceDir }} {{ .makeTarget }} ROLE={{ .role.path }}
             - script: |
-                {{- if .project.PROJECT_DIR }}
-                cd {{ .project.CLONE_DIR }}
-                {{- else }}
-                cd {{ .role.sourceDir }}/{{ .role.path }}
-                {{- end }}
+                cd {{ .role.initialPath }} || exit 1
                 if [ -n "$PROMPT" ]; then
                   opencode run "$PROMPT" {{ if eq .harnesses.opencode.permissions "skip" }}--dangerously-skip-permissions {{ end }}--model "$OPENROUTER_MODEL" -f ./
                 else

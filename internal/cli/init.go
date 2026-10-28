@@ -35,8 +35,8 @@ func newInitCommand(
 	var host, configuration string
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Apply and register the root operator team",
-		Long:  "Initialize ~/.kuke/kuketeams.yaml, fetch selected definitions, and apply the root operator team to kukeond.\nExisting valid configuration is preserved. Registration is saved only after all resources succeed.\nNo cells are created or started. The daemon and parent runtime scope must already exist.",
+		Short: "Apply and register the kukeon operator team",
+		Long:  "Initialize ~/.kuke/kuketeams.yaml, fetch selected definitions, and apply the kukeon operator team to kukeond.\nExisting valid configuration is preserved. Registration is saved only after all resources succeed.\nNo cells are created or started. The daemon and parent runtime scope must already exist.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			home, err := homeDir()
@@ -66,7 +66,7 @@ func newInitCommand(
 			}
 			_, err = fmt.Fprintf(
 				cmd.OutOrStdout(),
-				"%s: %s\nApplied %d resources; registered root team: %s\nNo cells created or started.\n",
+				"%s: %s\nApplied %d resources; registered kukeon team: %s\nNo cells created or started.\n",
 				status,
 				result.Bootstrap.Path,
 				result.Resources, result.EntryPath,

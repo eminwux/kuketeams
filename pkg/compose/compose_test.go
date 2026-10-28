@@ -46,6 +46,9 @@ func fixture(t *testing.T) (*config.TeamsConfig, compose.Options) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	boot.Config.Spec.Defaults = config.Operator().Spec
+	boot.Config.Spec.Defaults.Harnesses = boot.Config.Spec.Defaults.Harnesses[:1]
+	boot.Config.Spec.Defaults.Harnesses[0].Default = true
 	return boot.Config, compose.Options{
 		Sources: map[string]fs.FS{"kuketeams": os.DirFS("../..")},
 		TeamDir: "/operator/teams/root",
@@ -58,7 +61,7 @@ func TestRootDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	result, err := compose.Compose(cfg, config.Root(), opts)
+	result, err := compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +78,7 @@ func TestRootDefaults(t *testing.T) {
 	if bytes.Count(raw, []byte("kind: CellBlueprint")) != 1 || bytes.Count(raw, []byte("kind: CellConfig")) != 1 {
 		t.Fatal("incorrect document stream")
 	}
-	again, err := compose.Compose(cfg, config.Root(), opts)
+	again, err := compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,9 +101,20 @@ func TestRootDefaults(t *testing.T) {
 func allHarnesses(cfg *config.TeamsConfig) {
 	cfg.Spec.Defaults.Harnesses = []config.Harness{
 		{Name: "codex", Source: "kuketeams", Path: "harnesses/codex", Default: true},
-		{Name: "claude", Source: "kuketeams", Path: "harnesses/claude", Default: true},
-		{Name: "opencode", Source: "kuketeams", Path: "harnesses/opencode", Default: true},
+		{Name: "claude", Source: "kuketeams", Path: "harnesses/claude"},
+		{Name: "opencode", Source: "kuketeams", Path: "harnesses/opencode"},
 	}
+}
+
+func selectedTeam(cfg *config.TeamsConfig) *config.Team {
+	team := config.Root()
+	if len(cfg.Spec.Defaults.Harnesses) > 1 {
+		team.Spec.Harnesses = slices.Clone(cfg.Spec.Defaults.Harnesses)
+		for i := range team.Spec.Harnesses {
+			team.Spec.Harnesses[i].Default = false
+		}
+	}
+	return team
 }
 
 func routerBinding() config.SecretBinding {
@@ -116,7 +130,7 @@ func TestSelectedHarnessesAndBindings(t *testing.T) {
 	cfg.Spec.Secrets = []config.SecretBinding{routerBinding()}
 	// There is deliberately no local source and no environment lookup. An existing
 	// scoped secret reference is enough for structural composition.
-	result, err := compose.Compose(cfg, config.Root(), opts)
+	result, err := compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,11 +163,11 @@ func TestSelectedHarnessesAndBindings(t *testing.T) {
 	cfg.Spec.Defaults.Harnesses[1].Path = "absent/claude"
 	cfg.Spec.Defaults.Harnesses[2].Path = "absent/opencode"
 	opts.TeamDir = ""
-	result, err = compose.Compose(cfg, config.Root(), opts)
+	result, err = compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err != nil || len(result.Pairs) != 1 {
 		t.Fatalf("override: %v", err)
 	}
-	team := config.Root()
+	team := selectedTeam(cfg)
 	team.Spec.Roles = []config.Role{}
 	team.Spec.Harnesses = []config.Harness{}
 	result, err = compose.Compose(cfg, team, opts)
@@ -205,7 +219,7 @@ func TestMandatoryRequirementsAndSourceDeclarations(t *testing.T) {
 			Realm: "auth",
 		}, Source: &config.SecretSource{File: "/does/not/exist/credentials"},
 	}}
-	result, err := compose.Compose(cfg, config.Root(), opts)
+	result, err := compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -303,7 +317,7 @@ func TestActionableFailures(t *testing.T) {
 			source := copiedSource(t)
 			opts.Sources["kuketeams"] = source
 			tc.change(cfg, &opts, source)
-			result, err := compose.Compose(cfg, config.Root(), opts)
+			result, err := compose.Compose(cfg, selectedTeam(cfg), opts)
 			if err == nil || result != nil || !strings.Contains(err.Error(), tc.want) {
 				t.Fatalf("result=%v err=%v; wanted %q", result, err, tc.want)
 			}
@@ -319,12 +333,12 @@ func TestEnvironmentIsNeverRead(t *testing.T) {
 	binding.Source = &config.SecretSource{Env: "LOCAL_OPERATOR_AUTH"}
 	cfg.Spec.Secrets = []config.SecretBinding{binding}
 	t.Setenv("LOCAL_OPERATOR_AUTH", "secret-canary-must-never-appear")
-	first, err := compose.Compose(cfg, config.Root(), opts)
+	first, err := compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("LOCAL_OPERATOR_AUTH", "")
-	second, err := compose.Compose(cfg, config.Root(), opts)
+	second, err := compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -372,7 +386,7 @@ func assertRootResources(t *testing.T, result *compose.Result) {
 		t.Fatal("missing explicit role source")
 	}
 	script := c.Tty.OnInit[0].Script
-	for _, want := range []string{"make -C /home/user/kuketeams codex ROLE=roles/operator", "cd /home/user/kuketeams/roles/operator", "sandbox=workspace-write", "approval=on-request"} {
+	for _, want := range []string{"make -C /home/user/kuketeams codex ROLE=roles/operator", `cd "$HOME"`, "sandbox=workspace-write", "approval=on-request"} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("missing %q in launcher", want)
 		}
@@ -400,7 +414,7 @@ func TestRenderedLaunchScriptsAndExplicitProjectRepo(t *testing.T) {
 		},
 	)
 	opts.Scope = compose.Scope{Realm: "ops", Space: "agents", Stack: "root"}
-	result, err := compose.Compose(cfg, config.Root(), opts)
+	result, err := compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -419,7 +433,7 @@ func TestRenderedLaunchScriptsAndExplicitProjectRepo(t *testing.T) {
 				}
 			}
 		}
-		if !strings.Contains(scripts.String(), "cd /home/user/work/explicit-repo") {
+		if !strings.Contains(scripts.String(), `cd "$HOME"`) {
 			t.Fatalf("%s inferred project directory", pair.Harness)
 		}
 	}
@@ -438,7 +452,7 @@ func TestSecretDestinationConflicts(t *testing.T) {
 		{Name: "first-auth", EnvName: "AUTH_TOKEN", SecretRef: config.SecretRef{Name: "a", Realm: "auth"}},
 		{Name: "second-auth", EnvName: "AUTH_TOKEN", SecretRef: config.SecretRef{Name: "b", Realm: "auth"}},
 	}
-	result, err := compose.Compose(cfg, config.Root(), opts)
+	result, err := compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err == nil || result != nil || !strings.Contains(err.Error(), "conflicting secret") {
 		t.Fatalf("result=%v err=%v", result, err)
 	}
@@ -449,7 +463,7 @@ func TestSecretDestinationConflicts(t *testing.T) {
 		[]byte("[first-auth, second-auth]"),
 		[]byte("[first-auth]"),
 	)
-	result, err = compose.Compose(cfg, config.Root(), opts)
+	result, err = compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err == nil || result != nil || !strings.Contains(err.Error(), "conflicts with template") {
 		t.Fatalf("result=%v err=%v", result, err)
 	}
@@ -460,7 +474,7 @@ func TestParametersAcrossSelectedHarnesses(t *testing.T) {
 	allHarnesses(cfg)
 	cfg.Spec.Defaults.Harnesses = cfg.Spec.Defaults.Harnesses[:2]
 	cfg.Spec.Parameters = map[string]string{"ANTHROPIC_MODEL": "sonnet", "PROMPT": "hello"}
-	result, err := compose.Compose(cfg, config.Root(), opts)
+	result, err := compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,7 +492,7 @@ func TestParametersAcrossSelectedHarnesses(t *testing.T) {
 		}
 	}
 	cfg.Spec.Defaults.Roles[0].Harness = "codex"
-	if result, err = compose.Compose(cfg, config.Root(), opts); err == nil || result != nil ||
+	if result, err = compose.Compose(cfg, selectedTeam(cfg), opts); err == nil || result != nil ||
 		!strings.Contains(err.Error(), `unsupported parameter "ANTHROPIC_MODEL"`) {
 		t.Fatalf("unselected harness accepted parameter: %v", err)
 	}
@@ -490,7 +504,7 @@ func TestEffectiveSourcesControlRuntimeClones(t *testing.T) {
 	cfg.Spec.Secrets = []config.SecretBinding{routerBinding()}
 	cfg.Spec.Defaults.Sources = append(cfg.Spec.Defaults.Sources,
 		config.Source{Name: "definitions-only", URL: "https://example.test/defs", Tag: "v1"})
-	team := config.Root()
+	team := selectedTeam(cfg)
 	team.Spec.Sources = []config.Source{
 		{Name: "kuketeams", URL: "https://example.test/roles", Commit: "abc123", ClonePath: "/opt/roles"},
 		{Name: "extra", URL: "https://example.test/extra", Branch: "topic", ClonePath: "/opt/extra"},
@@ -562,11 +576,12 @@ func TestLaunchPreservesSourceRevision(t *testing.T) {
 				runGit("-C", repoDir, "checkout", "--detach", sha)
 			}
 			cfg.Spec.Defaults.Sources = append(cfg.Spec.Defaults.Sources, project)
+			cfg.Spec.Defaults.Roles[0].InitialPath = repoDir
 			source := copiedSource(t)
 			source["roles/operator/role.yaml"].Data = bytes.ReplaceAll(source["roles/operator/role.yaml"].Data,
 				[]byte("  needs:"), []byte("  needs:\n    repos: [project]"))
 			opts.Sources["kuketeams"] = source
-			result, err := compose.Compose(cfg, config.Root(), opts)
+			result, err := compose.Compose(cfg, selectedTeam(cfg), opts)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -590,7 +605,7 @@ func TestLaunchPreservesSourceRevision(t *testing.T) {
 				}
 				var launch strings.Builder
 				for _, stage := range pair.Blueprint.Spec.Cell.Containers[0].Tty.OnInit {
-					if strings.Contains(stage.Script, "make -C") || strings.Contains(stage.Script, "cd "+repoDir) {
+					if strings.Contains(stage.Script, "make -C") || strings.Contains(stage.Script, `cd "`+repoDir) {
 						launch.WriteString(stage.Script + "\n")
 					}
 				}
@@ -648,7 +663,7 @@ func TestResourceNamesIsolateTeamsAndSelections(t *testing.T) {
 				{"root.a", "operator"},
 				{"root", "a.operator"},
 			} {
-				team := config.Root()
+				team := selectedTeam(cfg)
 				team.Metadata.Name = selection.team
 				cfg.Spec.Defaults.Roles[0].Name = selection.role
 				result, err := compose.Compose(cfg, team, opts)
@@ -684,5 +699,163 @@ func TestResourceNamesIsolateTeamsAndSelections(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Run the actual rendered launch scripts with harness executables replaced by
+// observers. Materialization is real, so instructions/skills must remain available
+// when the starting directory is outside the role source and project checkout.
+func TestInitialPathLaunchAcrossHarnesses(t *testing.T) {
+	for _, selection := range []string{"omitted", "home", "subdirectory", "absolute", "missing"} {
+		t.Run(selection, func(t *testing.T) {
+			cfg, opts := fixture(t)
+			allHarnesses(cfg)
+			cfg.Spec.Secrets = []config.SecretBinding{routerBinding()}
+			home := t.TempDir()
+			target := home
+			initial := ""
+			switch selection {
+			case "home":
+				initial = "$HOME"
+			case "subdirectory":
+				initial, target = "$HOME/work", filepath.Join(home, "work")
+			case "absolute":
+				target = t.TempDir()
+				initial = target
+			case "missing":
+				target = filepath.Join(home, "missing")
+				initial = target
+			}
+			if selection != "missing" {
+				if err := os.MkdirAll(target, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			sourceDir, err := filepath.Abs("../..")
+			if err != nil {
+				t.Fatal(err)
+			}
+			cfg.Spec.Defaults.Sources[0].ClonePath = sourceDir
+			cfg.Spec.Defaults.Roles[0].InitialPath = initial
+			// A declared project must not override the selected initialPath or home fallback.
+			cfg.Spec.Defaults.Sources = append(
+				cfg.Spec.Defaults.Sources,
+				config.Source{
+					Name:      "project",
+					URL:       "https://example.test/project",
+					Branch:    "main",
+					ClonePath: "/project/ignored",
+				},
+			)
+			source := copiedSource(t)
+			source["roles/operator/role.yaml"].Data = bytes.ReplaceAll(
+				source["roles/operator/role.yaml"].Data,
+				[]byte("  needs:"),
+				[]byte("  needs:\n    repos: [project]"),
+			)
+			opts.Sources["kuketeams"] = source
+			result, err := compose.Compose(cfg, selectedTeam(cfg), opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			bin := t.TempDir()
+			state := filepath.Join(home, "observed")
+			for _, name := range []string{"codex", "claude", "opencode"} {
+				observer := "#!/bin/sh\npwd > \"$LAUNCH_STATE\"\n"
+				if err = os.WriteFile(filepath.Join(bin, name), []byte(observer), 0o700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for _, pair := range result.Pairs {
+				var launch strings.Builder
+				for _, stage := range pair.Blueprint.Spec.Cell.Containers[0].Tty.OnInit {
+					if strings.Contains(stage.Script, "make -C") || strings.Contains(stage.Script, "cd ") {
+						launch.WriteString(stage.Script + "\n")
+					}
+				}
+				cmd := exec.CommandContext(t.Context(), "bash", "-u", "-c", launch.String())
+				cmd.Env = append(
+					os.Environ(),
+					"HOME="+home,
+					"CODEX_HOME="+home+"/.codex",
+					"CLAUDE_CONFIG_DIR="+home+"/.claude",
+					"XDG_CONFIG_HOME="+home+"/.config",
+					"PATH="+bin+":"+os.Getenv("PATH"),
+					"PROMPT=",
+					"OPENROUTER_MODEL=test",
+					"LAUNCH_STATE="+state,
+				)
+				output, launchErr := cmd.CombinedOutput()
+				if selection == "missing" {
+					if launchErr == nil {
+						t.Fatalf("%s launched from nonexistent directory: %s", pair.Harness, output)
+					}
+					if _, statErr := os.Stat(state); !os.IsNotExist(statErr) {
+						t.Fatal("harness ran despite failed cd")
+					}
+					continue
+				}
+				if launchErr != nil {
+					t.Fatalf("%s launch: %v: %s", pair.Harness, launchErr, output)
+				}
+				raw, readErr := os.ReadFile(state)
+				if readErr != nil || strings.TrimSpace(string(raw)) != target {
+					t.Fatalf("%s started at %q, expected %q: %v", pair.Harness, raw, target, readErr)
+				}
+				policy := map[string]string{"codex": ".codex/AGENTS.md", "claude": ".claude/CLAUDE.md", "opencode": ".config/opencode/AGENTS.md"}[pair.Harness]
+				if raw, readErr = os.ReadFile(filepath.Join(home, policy)); readErr != nil || len(raw) == 0 {
+					t.Fatalf("%s missing role instructions: %v", pair.Harness, readErr)
+				}
+				skills := ".agents/skills"
+				if pair.Harness == "claude" {
+					skills = ".claude/skills"
+				}
+				if _, statErr := os.Stat(filepath.Join(home, skills, "create-cell-config", "SKILL.md")); statErr != nil {
+					t.Fatal(statErr)
+				}
+			}
+		})
+	}
+}
+
+func TestFreshOperatorComposition(t *testing.T) {
+	boot, err := bootstrap.Run(t.Context(), bootstrap.Options{Root: t.TempDir(), Git: noGit{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, opts := fixture(t)
+	result, err := compose.Compose(boot.Config, config.Operator(), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Pairs) != 2 {
+		t.Fatalf("pairs=%d", len(result.Pairs))
+	}
+	for i, name := range []string{"kukeon-operator-codex", "kukeon-operator-claude"} {
+		p := result.Pairs[i]
+		if p.Config.Metadata.Name != name || p.Blueprint.Metadata.Name != name || p.Config.Spec.Blueprint.Name != name {
+			t.Fatalf("incorrect pair identity: %+v", p)
+		}
+	}
+}
+
+func TestInheritedHarnessDefaultAndRoleOverride(t *testing.T) {
+	cfg, opts := fixture(t)
+	allHarnesses(cfg)
+	// Inheriting the global harness list selects only its single default, even
+	// though other harnesses are declared. Role-level selection can choose Claude.
+	for _, harness := range []string{"", "claude"} {
+		cfg.Spec.Defaults.Roles[0].Harness = harness
+		result, err := compose.Compose(cfg, config.Root(), opts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "codex"
+		if harness != "" {
+			want = harness
+		}
+		if len(result.Pairs) != 1 || result.Pairs[0].Harness != want {
+			t.Fatalf("inherited selection: %+v", result.Pairs)
+		}
 	}
 }

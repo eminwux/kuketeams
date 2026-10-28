@@ -52,7 +52,7 @@ func bind(
 			return errors.New("template requires unique container IDs and published images")
 		}
 		ids[container.ID] = true
-		// Copied templates assume SSH signing. Carry configured identity, and only
+		// Carry configured identity, and only
 		// keep in-cell signing paths when the role explicitly requests that mount.
 		container.Git = containerGit(cfg.Spec.Git, slices.Contains(role.Spec.Needs.Mounts, "ssh"))
 		for j := range container.Volumes {

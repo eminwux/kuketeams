@@ -153,7 +153,7 @@ func TestSelectedHarnessesAndBindings(t *testing.T) {
 		t.Fatal("incorrect destination")
 	}
 	script := router.Blueprint.Spec.Cell.Containers[0].Tty.OnInit[0].Script
-	if strings.Contains(script, "cat >") || !strings.Contains(script, "opencode-openrouter ROLE=roles/operator") {
+	if strings.Contains(script, "cat >") || !strings.Contains(script, "Makefile.start setup") {
 		t.Fatal("role settings would be overwritten or materialization missing")
 	}
 	cfg.Spec.Secrets = nil
@@ -271,12 +271,24 @@ func TestActionableFailures(t *testing.T) {
 			"read definition",
 			func(_ *config.TeamsConfig, _ *compose.Options, s fstest.MapFS) { delete(s, "roles/operator/role.yaml") },
 		},
-		{"partial", "not defined", func(_ *config.TeamsConfig, _ *compose.Options, s fstest.MapFS) {
-			delete(s, "harnesses/codex/partials.tmpl.yaml")
+		{"renderer", "spec.renderer: unsupported", func(_ *config.TeamsConfig, _ *compose.Options, s fstest.MapFS) {
+			s["harnesses/codex/harness.yaml"].Data = bytes.ReplaceAll(
+				s["harnesses/codex/harness.yaml"].Data,
+				[]byte("renderer: kukeon/v1beta1"),
+				[]byte("renderer: absent/v2"),
+			)
 		}},
-		{"template", "read template", func(_ *config.TeamsConfig, _ *compose.Options, s fstest.MapFS) {
-			delete(s, "harnesses/codex/blueprint.tmpl.yaml")
-		}},
+		{
+			"legacy-template",
+			"legacy template/makeTarget",
+			func(_ *config.TeamsConfig, _ *compose.Options, s fstest.MapFS) {
+				s["harnesses/codex/harness.yaml"].Data = bytes.ReplaceAll(
+					s["harnesses/codex/harness.yaml"].Data,
+					[]byte("renderer: kukeon/v1beta1"),
+					[]byte("template: blueprint.tmpl.yaml"),
+				)
+			},
+		},
 		{"unsupported-setting", "unsupported Codex", func(_ *config.TeamsConfig, _ *compose.Options, s fstest.MapFS) {
 			s["roles/operator/role.yaml"].Data = bytes.ReplaceAll(
 				s["roles/operator/role.yaml"].Data,
@@ -386,7 +398,7 @@ func assertRootResources(t *testing.T, result *compose.Result) {
 		t.Fatal("missing explicit role source")
 	}
 	script := c.Tty.OnInit[0].Script
-	for _, want := range []string{"make -C /home/user/kuketeams codex ROLE=roles/operator", `cd "$HOME"`, "sandbox=workspace-write", "approval=on-request"} {
+	for _, want := range []string{"make -f /opt/kuketeams/harness/Makefile.start setup", `cd "$INITIAL_PATH"`, "sandbox=$CODEX_SANDBOX", "approval=$CODEX_APPROVAL"} {
 		if !strings.Contains(script, want) {
 			t.Fatalf("missing %q in launcher", want)
 		}
@@ -433,7 +445,7 @@ func TestRenderedLaunchScriptsAndExplicitProjectRepo(t *testing.T) {
 				}
 			}
 		}
-		if !strings.Contains(scripts.String(), `cd "$HOME"`) {
+		if !strings.Contains(scripts.String(), `cd "$INITIAL_PATH"`) {
 			t.Fatalf("%s inferred project directory", pair.Harness)
 		}
 	}
@@ -520,7 +532,7 @@ func TestEffectiveSourcesControlRuntimeClones(t *testing.T) {
 		pair.Config.Spec.Repos["kuketeams"].Ref != "abc123" || pair.Config.Spec.Repos["extra"].Branch != "topic" {
 		t.Fatalf("effective source clone declarations lost: %+v", pair.Config.Spec.Repos)
 	}
-	if !strings.Contains(pair.Blueprint.Spec.Cell.Containers[0].Tty.OnInit[0].Script, "make -C /opt/roles") {
+	if !slices.Contains(pair.Blueprint.Spec.Cell.Containers[0].Env, "ROLE_SOURCE_DIR=/opt/roles") {
 		t.Fatal("global source path used instead of team override")
 	}
 	for _, selected := range result.Pairs {
@@ -605,14 +617,15 @@ func TestLaunchPreservesSourceRevision(t *testing.T) {
 				}
 				var launch strings.Builder
 				for _, stage := range pair.Blueprint.Spec.Cell.Containers[0].Tty.OnInit {
-					if strings.Contains(stage.Script, "make -C") || strings.Contains(stage.Script, `cd "`+repoDir) {
+					if strings.Contains(stage.Script, "Makefile.start setup") ||
+						strings.Contains(stage.Script, `cd "$INITIAL_PATH"`) {
 						launch.WriteString(stage.Script + "\n")
 					}
 				}
 				state := filepath.Join(root, pair.Harness+"-state")
 				cmd := exec.CommandContext(t.Context(), "bash", "-eu", "-c", launch.String())
 				cmd.Env = append(
-					os.Environ(),
+					append(os.Environ(), pair.Blueprint.Spec.Cell.Containers[0].Env...),
 					"PATH="+binDir+":"+os.Getenv("PATH"),
 					"PROMPT=",
 					"OPENROUTER_MODEL=test",
@@ -773,13 +786,20 @@ func TestInitialPathLaunchAcrossHarnesses(t *testing.T) {
 						launch.WriteString(stage.Script + "\n")
 					}
 				}
-				cmd := exec.CommandContext(t.Context(), "bash", "-u", "-c", launch.String())
+				adapter, absErr := filepath.Abs("../../harnesses/" + pair.Harness + "/context/Makefile.start")
+				if absErr != nil {
+					t.Fatal(absErr)
+				}
+				launchScript := strings.ReplaceAll(launch.String(), "/opt/kuketeams/harness/Makefile.start", adapter)
+				cmd := exec.CommandContext(t.Context(), "bash", "-u", "-c", launchScript)
 				cmd.Env = append(
-					os.Environ(),
+					append(os.Environ(), pair.Blueprint.Spec.Cell.Containers[0].Env...),
+					"INITIAL_PATH="+target,
 					"HOME="+home,
 					"CODEX_HOME="+home+"/.codex",
 					"CLAUDE_CONFIG_DIR="+home+"/.claude",
 					"XDG_CONFIG_HOME="+home+"/.config",
+					"OPENCODE_CONFIG="+home+"/.opencode-config",
 					"PATH="+bin+":"+os.Getenv("PATH"),
 					"PROMPT=",
 					"OPENROUTER_MODEL=test",

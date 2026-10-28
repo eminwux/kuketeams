@@ -539,8 +539,8 @@ func (d *remoteDriver) acceptEvidence(output []byte, running bool) bool {
 	if !running {
 		d.fail("codex completed without observed live work container and root task")
 	}
-	requirements := fileHash(d.t, filepath.Join(d.repo, "harnesses/codex/requirements.toml"))
-	hook := fileHash(d.t, filepath.Join(d.repo, "harnesses/codex/hooks/reflect-stop.py"))
+	requirements := fileHash(d.t, filepath.Join(d.repo, "harnesses/codex/context/requirements.toml"))
+	hook := fileHash(d.t, filepath.Join(d.repo, "harnesses/codex/context/hooks/reflect-stop.py"))
 	if err = proof.validate(d.report.SourceRevision, requirements, hook); err != nil {
 		d.fail(err.Error())
 	}

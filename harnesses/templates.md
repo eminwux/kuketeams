@@ -1,192 +1,227 @@
-> Historical template contract copied from [agents at a5dbb59c3942621c5d52ba321b1d81e5987a5f3a](https://github.com/eminwux/agents/tree/a5dbb59c3942621c5d52ba321b1d81e5987a5f3a). The copied contract is adapted below for the shared `/home/user` layout. Runtime role materialization still uses the external agents checkout. Standalone composition is a later step.
+# Bundled kukeon renderer and Harness startup
 
-# Harness blueprint templates
+A release bundles one template set at
+[`renderers/kukeon/v1beta1`](../renderers/kukeon/v1beta1). All three packaged
+harnesses select it with `spec.renderer: kukeon/v1beta1`. Go embeds the files in
+the executable; composition does not need a renderer checkout or network access.
 
-Each `harnesses/<h>/` directory carries one harness's team-distribution
-declarations:
+`pkg/harness` owns the strict, single-document `kuketeams.io/v1 Harness` schema.
+`pkg/compose` resolves it into `rendererInput` (input contract revision **1**),
+then executes the bundled blueprint and shared partials. That contract carries
+structured parameters, environment entries, repository and secret selectors,
+mounts, state path, scope, selected image, execution profile, and ordered scripts.
+It contains no JSON lists or shell fragments standing in for structural fields.
+The generated document uses the pinned kukeon `v1beta1` models; these are a
+separate API from the local Harness and the renderer input contract.
 
-- `harness.yaml` — `skillPath`, `makeTarget`, and the blueprint `template` name.
-- `blueprint.tmpl.yaml` — the Go `text/template` the kukeon renderer
-  (teamrender, eminwux/kukeon#1110) executes into a v1beta1 `CellBlueprint`,
-  one per `(role × harness)`.
-- `partials.tmpl.yaml` — the named-template `{{ define }}` blocks the blueprint
-  references via `{{ template "name" . }}`.
+Only the bundled set is loaded, in deterministic filename order. Source-local
+`*.tmpl.yaml` files are ignored and cannot override its named partials. This
+revision has no extension-fragment interface. External packages use the same
+renderer and declarations as packaged harnesses. Unknown fields, legacy
+`template` / `makeTarget`, and unsupported renderer identifiers fail with migration
+diagnostics; templates are never downloaded or selected from an arbitrary path.
+An incompatible future input contract needs a distinct renderer identifier and
+an explicit schema/validation migration, even if its document API is v1beta1.
 
-## Named-template partials
+## Complete Harness example
 
-The renderer parses **every** sibling `*.tmpl.yaml` in the blueprint's own
-directory into the blueprint's template set, so a `{{ template "name" . }}`
-call resolves against a `{{ define "name" }}…{{ end }}` block in
-`partials.tmpl.yaml`. The renderer only scans the blueprint's _own_ directory —
-there is no shared/parent partials lookup — so `partials.tmpl.yaml` is
-duplicated per harness (`claude/`, `opencode/`, `codex/`) rather than sourced
-from one shared file. Keep the three copies in sync.
+This is the packaged Codex declaration. The full
+[Claude](claude/harness.yaml) and [OpenCode](opencode/harness.yaml) declarations
+also show their complete ordered scripts, model parameters, settings, and mounts.
+Registry references remain in the generated sibling `images.yaml`, unchanged by
+startup or transient image builds.
 
-### Partial calling contract
+```yaml
+apiVersion: kuketeams.io/v1
+kind: Harness
+metadata:
+  name: codex
+spec:
+  renderer: kukeon/v1beta1
+  shell: /bin/bash
+  statePath: $HOME/.codex
+  environment:
+    CODEX_HOME: "${HOME}/.codex"
+    AGENTS_ROLE: "${ROLE_NAME}"
+    CODEX_SANDBOX: "${SANDBOX}"
+    CODEX_APPROVAL: "${APPROVAL}"
+  onInit:
+    - script: |
+        set -euo pipefail
+        make -f /opt/kuketeams/harness/Makefile.start setup
+        cd "$INITIAL_PATH" || exit 1
+        sandbox=$CODEX_SANDBOX
+        approval=$CODEX_APPROVAL
+        set -- -c 'project_doc_fallback_filenames=["CLAUDE.md"]' -c 'project_doc_max_bytes=131072'
+        if [ -n "${PROMPT:-}" ]; then
+          exec codex "$@" --ask-for-approval never exec --json \
+            --cd "$PWD" --sandbox "$sandbox" -- "$PROMPT"
+        else
+          exec codex "$@" \
+            -c 'tui.status_line=["hostname","model-with-reasoning","current-dir"]' \
+            --ask-for-approval "$approval" \
+            --cd "$PWD" --sandbox "$sandbox"
+        fi
+  skillPath: $HOME/.agents/skills
+  images:
+    - name: codex
+      build:
+        context: harnesses/codex/context
+        dockerfile: Dockerfile
+      capabilities: [codex, git, gh, go, node, make]
+    - name: codex-root
+      build:
+        context: harnesses/codex/context
+        dockerfile: Dockerfile.root
+      capabilities: [codex, git, gh, go, node, make, root]
+```
 
-Each partial receives the **bare selector string** as dot `.` — the current
-`{{ range .needs.repos }}` / `{{ range .needs.mounts }}` entry, e.g. `"ssh"`,
-`"project"`, `"agents"`. The renderer exposes only the `upper` and `replace`
-functions (plus Go template builtins like `eq`/`if`); a partial **cannot reach
-`.operator`, `.project`, or any other root-context leaf** — the only datum it
-sees is the selector. Operator-derived values a partial therefore cannot
-compute (the SSH mount's host home) are composed in the blueprint body via
-`$.operator.*`, which _is_ in scope there.
+The Harness owns images and capabilities, `shell`, `onInit`, `environment`,
+optional `parameters`, optional `statePath`, `mounts`, and noncredential `seeds`.
+The shell is explicitly `/bin/bash` or `/bin/sh` and becomes the work container's
+command. All packaged scripts use Bash, which their shared base images supply.
+External images must include the declared interpreter and every referenced asset.
+`skillPath` records the native skill destination; setup must materialize it.
 
-| Partial          | Dot        | Returns                                                                    |
-| ---------------- | ---------- | -------------------------------------------------------------------------- |
-| `repo_url`       | repo name  | Always empty — see "Repo lookup" below.                                    |
-| `repo_target`    | repo name  | In-cell clone dir under `/home/user/`.                                     |
-| `mount_source`   | mount name | Host source path (system mounts only; `ssh` is composed in the blueprint). |
-| `mount_target`   | mount name | In-cell mount path.                                                        |
-| `mount_readonly` | mount name | `true`/`false`.                                                            |
+## Startup values and quoting
 
-## Repo lookup
+The renderer's execution profile uses `/home/user` for HOME and workingDir in
+both root and non-root images. External images selecting this renderer must
+provide that same effective HOME. Inputs are container environment values,
+never shell source substitutions:
 
-Repos resolve as **structural slots**, not template-time URLs. `repo_url`
-always returns empty; an empty `url:` makes teamrender treat the repo as a slot
-its `BindConfig` step fills from operator facts (eminwux/kukeon#1115):
+| Input                             | Meaning                                                                                                           |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `ROLE_SOURCE_DIR`                 | Validated absolute in-cell role-source checkout (`sources[].clonePath`).                                          |
+| `ROLE_PATH`                       | Safe source-relative selected role directory.                                                                     |
+| `INITIAL_PATH`                    | Absolute launch directory; omitted or `$HOME` resolves to `/home/user`.                                           |
+| `HARNESS_SETTINGS`                | Selected role-relative settings path, empty when unused.                                                          |
+| `PROMPT`                          | Blueprint parameter; empty selects interactive mode.                                                              |
+| `AGENT_NAME`                      | Bound resource identity unless explicitly supplied as a parameter.                                                |
+| `CODEX_SANDBOX`, `CODEX_APPROVAL` | Codex's declared environment mapping; role values, overridden to `danger-full-access` / `never` in root profiles. |
+| `OPENCODE_PERMISSIONS`            | OpenCode's declared mapping of role `permissions`.                                                                |
 
-| Repo      | Filled from                                                                                                                  |
-| --------- | ---------------------------------------------------------------------------------------------------------------------------- |
-| `project` | `Inputs.ProjectRepoURL` (the per-project clone URL `kuke team init` reads from the project's `origin`).                      |
-| `agents`  | `tc.spec.sources["<owner>/<repo>"]`, or the SSH default derived from the materialized agents source when no override is set. |
+`spec.environment` is a mapping of uppercase environment names to strings. It
+may refer to `${HOME}`, `${ROLE_SOURCE_DIR}`, `${ROLE_PATH}`, `${INITIAL_PATH}`,
+`${ROLE_NAME}`, `${SETTINGS}`, `${SANDBOX}`, `${APPROVAL}`, `${PERMISSIONS}`, and
+`${TEAM_ROOT}`, or to declared blueprint parameters. The renderer resolves its
+known inputs once; parameter references remain structural `${PARAM}` values in
+environment entries for kukeon to fill. `$HOME` notation in paths resolves before
+emission. Unsupported substitutions, unsafe paths, reserved environment keys,
+and parameters conflicting with startup inputs fail composition. Mounts retain
+separate source, target, and readOnly fields; lists and maps are never shell code.
+`TEAM_ROOT` is a host seed directory; it is not the runtime role checkout.
 
-`repo_target` maps every non-project repo to `/home/user/<name>` (e.g.
-`agents` → `/home/user/agents`). The `project` repo's in-cell dir is
-per-project and known only at render time, and a partial cannot reach it (it
-sees only the selector) — so the blueprint **body** composes the project target
-from `.project.NAME` (the team label, e.g. `dezot` → `/home/user/dezot`),
-baking the dir at render time, the same way the SSH mount's host home is
-composed from `$.operator.HOME_DIR`. `NAME` — not `.project.PROJECT_DIR` — is
-the basename source: `PROJECT_DIR` is the **host-absolute** project path
-(`os.Getwd()` at `kuke team init`, e.g. `/home/inwx/projects/dezot`), so
-`{{ $home }}/{{ .project.PROJECT_DIR }}` would join into the double-slashed
-`/home/user//home/inwx/projects/dezot` (issue #746). `PROJECT_DIR` is kept
-only as the project-bound guard (`{{- if .project.PROJECT_DIR }}`), never
-composed into an in-cell path. Baking is correct because both the project dir
-and the team label are fixed per team at `kuke team init` time; it also keeps
-`${PROJECT_DIR}` out of the resolved blueprint, where it would otherwise
-survive as an unfillable literal (the team-rendered `CellConfig.spec.values`
-never carries `PROJECT_DIR`).
+Startup scripts are opaque shell code: no Go-template evaluation or input
+substitution occurs inside them. Quote shell variables (`"$ROLE_SOURCE_DIR"`,
+`"$INITIAL_PATH"`, `"$PROMPT"`); use positional arguments for flags. Do not embed
+`${PROMPT}` or another declared `${PARAM}` directly in scripts: kukeon's scalar
+substitution would insert it into shell source before execution. Composition
+rejects that form and directs authors to `$PROMPT` and environment delivery.
+Shell forms such as `${PROMPT:-}` remain shell expressions. Never place credential
+values in a Harness; existing structural secret slots/bindings deliver secrets
+to their explicitly configured environment destinations.
 
-This is the issue's recommended **operator-supplied-via-TeamsConfig** option:
-the agents clone URL lives in the operator's `~/.kuke/kuketeams.yaml`, never
-baked into this shared repo.
+## Setup, ordering, reruns, and failure
 
-> **Scope note.** teamrender's `BindConfig` only fills the `project` and
-> `agents` slots. Repos some non-default roles declare — `kukeon` —
-> would render as unfilled
-> slots until teamrender learns to fill them (or the blueprint carries an
-> inline URL for them). Those roles are outside the `[dev, pm, pr-reviewer] ×
-[claude, opencode]` surface this step targets; wiring them is follow-up work.
+All container assets live in `harnesses/<name>/context/`, including every
+Dockerfile, `Makefile.start`, and Codex policy/hooks. Host build Makefiles,
+Harness declarations, catalogs, docs, and host tests remain outside that context.
+Each selectable Dockerfile copies `Makefile.start` to
+`/opt/kuketeams/harness/Makefile.start`; Codex's managed requirements and hook
+remain at `/etc/codex/requirements.toml` and `/opt/agents/codex/hooks/reflect-stop.py`.
 
-## Shared-reference delivery and loading
+Packaged scripts run `make -f /opt/kuketeams/harness/Makefile.start setup` before
+changing directory and launching. That adapter uses the **role** checkout's
+existing `claude`, `codex`, or `opencode-openrouter` installer target with the
+selected `ROLE`. It never requires a harness-source checkout inside the cell,
+changes source revisions, installs packages, or invokes host image builds.
+The selected role source must supply that installation interface. The packaged
+operator installer links instructions/skills in native home locations and
+preflights managed destinations, preserving credentials and unrelated files.
+External role installers retain responsibility for their own rerun/conflict
+behavior. Setup runs before agent launch even when INITIAL_PATH is outside the
+role checkout; instruction discovery is not dependent on that working directory.
 
-All seven roles declare the existing `agents` repository slot. Its checkout
-supplies [shared references](https://github.com/eminwux/agents/blob/a5dbb59c3942621c5d52ba321b1d81e5987a5f3a/common/references/README.md) directly at
-`<home>/agents/common/references/`; the templates select `<home>` from the root
-capability. Verify the effective `HOME` agrees with the resolved paths. The
-[agents Makefile](https://github.com/eminwux/agents/blob/a5dbb59c3942621c5d52ba321b1d81e5987a5f3a/Makefile) copies common skills, role skills, and role `CLAUDE.md`
-into the selected skill tree; it does not copy references. From a generated
-`skills/CLAUDE.md`, follow the source-checkout path in the role pointer. Local
-invocations use the checkout that supplied `make`.
+Kukeon runs default onInit entries in order in the wrapped shell on **every
+boot**, not exactly once per cell. These scripts depend on repositories and
+mounts already being available. Keep dependent commands, variables, conditionals,
+`cd`, and launch in one multiline entry. Packaged scripts use `set -e` so setup
+failure aborts before launch. Setup must be repeatable; conflicts need explicit
+resolution, never destructive replacement of user assets. Separate lifecycle
+hooks, package installation, and resource provisioning remain outside this
+contract. Codex retains exec process semantics, Claude retains its prompt-mode
+supervisor loop, and OpenCode retains its prompt/interactive commands.
 
-Filesystem delivery, instruction discovery, and actual reading are separate:
+External harnesses can use another setup tool, with no Make requirement in the
+generic contract. A complete minimal external example is:
 
-| Harness  | Source-inspected loading mechanism                                                                                                        | Deployment evidence still needed                                                                                                                                                      |
-| -------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Claude   | Role settings and `--add-dir`, with `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD=1`.                                                     | Effective role/project loading and native-tool read of the sibling `common/references/` path; the role's add-dir does not itself name that sibling.                                   |
-| Codex    | Shared Makefile materialization, managed `$CODEX_HOME/AGENTS.md`, and project fallback configuration. See [Codex cells](codex/README.md). | Live instruction/skill discovery and volume ownership still require cell smoke tests.                                                                                                 |
-| OpenCode | Startup generates a config with a role `instructions` entry.                                                                              | Final rendered/bound parameter substitution, generated config, and actual role/reference reads. Shell heredoc quoting alone does not establish whether earlier substitution occurred. |
+```yaml
+apiVersion: kuketeams.io/v1
+kind: Harness
+metadata:
+  name: custom
+spec:
+  renderer: kukeon/v1beta1
+  skillPath: $HOME/.agents/skills
+  shell: /bin/sh
+  onInit:
+    - script: |
+        set -eu
+        /opt/custom/setup
+        cd "$INITIAL_PATH"
+        exec /opt/custom/agent "$PROMPT"
+  images:
+    - name: custom
+      build:
+        context: harnesses/custom/context
+        dockerfile: Dockerfile
+      capabilities: [custom]
+```
 
-These are source contracts, not runtime certification. Verify the selected
-image digest/CLI version, effective user/home/cwd, final settings and paths,
-and native reads using isolated fixtures before claiming a launch path works.
-Test both assigned-task and empty interactive modes. Diagnose any baseline
-loading failure separately before proposing a harness correction; availability
-of files or a successful shell read alone is insufficient.
+Supply a sibling `HarnessImageCatalog` with a published image including those
+capabilities. Its setup tool must consume the role inputs and materialize the
+promised instructions/skills. Unknown lifecycle knobs (including `runOn`) fail
+strict decoding instead of being silently discarded.
 
-References summarize policy and carry no writable shared memory or live tracker
-state. Existing state scoping and permissions remain authoritative. Refresh
-references and role pointers together through the existing source mechanism,
-then use a new session or controlled restart/rematerialization before claiming
-the updated pointer is loaded. Keep source and generated skills on a compatible
-revision; do not assume hot reload during an active session. This documentation
-change requires no image rebuild or profile regeneration. Roll back references
-and pointers together through the previous source revision and rematerialize,
-preserving owned state. Template changes, if separately needed, require their
-own installed-configuration refresh and validation.
+## Kukeon compatibility and future fields
 
-## Mount lookup
+The supported daemon prerequisite for this renderer is the pinned source
+revision `58250581d283592cd59bda8c0d083f83940b6ae4` from
+`v0.9.2-0.20260831174915-58250581d283`. This is a single-revision compatibility
+baseline, not a claim that all v1beta1 daemons support these fields or that later
+releases have been certified. The recorded build label for that source is
+`v0.9.1-2-g5825058` (see [remote verification](../docs/remote-operator-check.md)).
 
-Mounts are resolved entirely at template time (teamrender has no volume-slot
-fill step). The SSH mount is universal across roles and is the one
-operator-relative mount, so its host source is composed in the blueprint from
-`$.operator.HOME_DIR`; the remaining mounts (declared only by `orchestrator`)
-carry fixed host paths.
+There is actual daemon build information: kukeon's
+[`PingVersion`](https://github.com/eminwux/kukeon/blob/58250581d283592cd59bda8c0d083f83940b6ae4/pkg/api/kukeonv1/client.go#L192)
+returns the build label displayed by `kuke status`. Before application, check
+that against the supported revision/build provenance. It is not a capability
+endpoint: arbitrary development build labels do not prove field support.
+Composition is offline and cannot enforce a daemon version; application currently
+checks reachability with Ping and leaves this version prerequisite to the
+operator. Automated version/range enforcement remains a documented limitation;
+no negotiation protocol or assumed capability endpoint is introduced here.
 
-| Mount            | Host source                                   | In-cell target             | Read-only       |
-| ---------------- | --------------------------------------------- | -------------------------- | --------------- |
-| `ssh`            | `<HOME_DIR>/.ssh` (via `$.operator.HOME_DIR`) | `/home/user/.ssh`          | yes             |
-| `kuke-binary`    | `/usr/local/bin/kuke`                         | `/usr/local/bin/kuke`      | yes             |
-| `kukeond-socket` | `/run/kukeon/kukeond.sock`                    | `/run/kukeon/kukeond.sock` | **no** (dialed) |
-| `kukeon-install` | `/opt/kukeon`                                 | `/opt/kukeon`              | yes             |
+No upstream model change is required for this migration: the pinned
+`CellBlueprintParameter`, `BlueprintContainer`, `ContainerTty.OnInit`, and
+`TtyStage.Script` already represent the emitted documents. The local Harness
+schema changes independently. To add a kukeon field:
 
-The `orchestrator` mount paths reproduce the retired hand-written
-`crew/agents/orchestrator/blueprints/orchestrator.yaml` (eminwux/crew, retired
-in step 9 / #720). They are fixed host conventions, not operator facts; if the
-operator install layout diverges, a dedicated operator-fact contract for these
-mounts is follow-up work. `orchestrator` is outside this step's render surface.
+1. Confirm the pinned runtime model **and daemon** support it; update the pin
+   and supported baseline first if a separate upstream prerequisite is needed.
+2. Extend the local Harness or composition model with a structured field,
+   validate it explicitly, and resolve it into the typed renderer input.
+3. Update the one shared template/partial set and tests for all harness profiles;
+   reject unsupported requests rather than omitting them. Update this contract.
 
-## State volume
+New standalone resource kinds additionally need composition outputs and apply
+ordering in a separately scoped feature. Existing persistent-state requirements
+and bindings are preserved here; #23 owns new resource preparation.
 
-Each `claude`/`codex` cell's durable agent state — `~/.claude` (memory,
-learnings, caches) and `~/.codex` — is mounted from a **daemon-managed
-`kind: Volume`** (eminwux/kukeon#1016), not a raw host bind. The blueprint
-emits a `kind: volume` mount whose `source` is a Volume name resolved in the
-cell's own scope (realm/space/stack, most-specific first) at container start;
-the Volume's on-disk directory survives both container recreation and the
-mounting cell's deletion. This replaces the prior unmanaged
-`TEAM_ROOT/${ROLE}-{claude,codex}` host binds, which had no lifecycle and no
-delete-gate.
-
-| Harness  | Mount kind    | Volume name (project-bound role)    | Volume name (singleton role) | In-cell target |
-| -------- | ------------- | ----------------------------------- | ---------------------------- | -------------- |
-| `claude` | `volume` (rw) | `<project.NAME>-<role.name>-claude` | `<role.name>-claude`         | `~/.claude`    |
-| `codex`  | `volume` (rw) | `<project.NAME>-<role.name>-codex`  | `<role.name>-codex`          | `~/.codex`     |
-
-The name is keyed by `(project, role)` and fixed at **render time** (from the
-Role + ProjectTeam), so it is a static template — no per-cell dynamic identity
-(kukeon#1017) is needed. Multiple cells of the same `(role, project)` share one
-Volume, exactly as multiple instances shared the host dir before. Project-bound
-roles (`pm`, `dev`, `pr-reviewer`) carry the `(project, role)` name; singleton
-roles (`meta-*`, `orchestrator`, which have no `.project`) fall back to the
-per-role-only name under the same `{{ if .project.PROJECT_DIR }}` guard the rest
-of the blueprint uses. Distinct `(role, project)` Volumes keep `pm`/`dev`/
-`pr-reviewer` memory isolated rather than merged into one shared `~/.claude`
-(the shared-profile + auth alternative is tracked in kukeon#1164).
-
-The read-only `claude.json` **seed** mount stays a host bind — it is
-operator-provided config, not durable agent state.
-
-> **Provisioning.** kukeon#1016 shipped **without** auto-create — an unresolved
-> volume reference is a hard error at cell start (kukeon#1290), so the
-> `(project, role)` Volumes must be **pre-created** before the cell starts (e.g.
-> `kuke create volume <name>` in each cell's scope, or as part of `kuke team
-init`). Wiring this pre-provision into team init is tracked as a follow-up.
-
-### SSH configuration in root cells
-
-Root blueprints set `GIT_SSH_COMMAND` to explicitly load `/home/user/.ssh/config`
-with `ssh -F` when that file exists, falling back to `-F /dev/null` otherwise.
-Git evaluates the selection inside the cell, including for required repository
-clones before the interactive terminal starts. This lets root use the read-only
-host-user-owned config without OpenSSH rejecting its implicit user-config
-ownership check. No host SSH ownership or permissions are changed; identity-file
-and host-key options remain the same. Non-root blueprints are unchanged.
-
-Explicit `-F` suppresses `/etc/ssh/ssh_config` in root cells. With no mounted
-config, SSH uses built-in defaults plus the command-line options, not system
-configuration. If needed, include system configuration explicitly from the
-mounted config (for example, `Include /etc/ssh/ssh_config`).
+`make test` exercises rendered/bound root and non-root profiles, ordered external
+scripts, unsafe inputs, and real shell startup with real role materialization and
+observer agent binaries. `make test-harnesses` checks catalog/build closure,
+Dockerfile COPY assets, hooks, and both architecture plans. These checks do not
+certify native agent instruction reads, provider authentication, rebuilt image
+execution, or a running kukeond; those require the existing live smoke checks.

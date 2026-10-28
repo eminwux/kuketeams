@@ -211,7 +211,7 @@ func composePair(
 	if settingsErr := checkSettings(hsel.Name, settings); settingsErr != nil {
 		return Pair{}, settingsErr
 	}
-	bp, err := render(hfs, hsel.Path, definition, &role, selection, repo, image, needs, sources, opts)
+	bp, err := render(definition, &role, selection, repo, image, needs, sources, opts)
 	if err != nil {
 		return Pair{}, err
 	}

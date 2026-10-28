@@ -9,8 +9,8 @@ def check(plan):
     root = Path(__file__).resolve().parents[2]
     targets = plan["target"]
     expected = {}
-    for dockerfile in (root / "harnesses").glob("*/Dockerfile*"):
-        name = dockerfile.parent.name
+    for dockerfile in (root / "harnesses").glob("**/Dockerfile*"):
+        name = dockerfile.parent.parent.name if dockerfile.parent.name == "context" else dockerfile.parent.name
         if dockerfile.name != "Dockerfile":
             name += "-" + dockerfile.name.removeprefix("Dockerfile.")
         expected[name] = dockerfile

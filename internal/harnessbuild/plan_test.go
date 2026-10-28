@@ -31,7 +31,7 @@ func buildSource(t *testing.T) fstest.MapFS {
 	t.Helper()
 	source := os.DirFS("../..")
 	out := fstest.MapFS{}
-	for _, pattern := range []string{"harnesses/*/harness.yaml", "harnesses/*/Dockerfile*"} {
+	for _, pattern := range []string{"harnesses/*/harness.yaml", "harnesses/*/context/Dockerfile*", "harnesses/base/Dockerfile*"} {
 		files, err := fs.Glob(source, pattern)
 		if err != nil {
 			t.Fatal(err)
@@ -50,7 +50,12 @@ func buildSource(t *testing.T) fstest.MapFS {
 func TestBuildUsesAuthoredContextAndDockerfile(t *testing.T) {
 	source := buildSource(t)
 	filename := "harnesses/codex/harness.yaml"
-	raw := strings.Replace(string(source[filename].Data), "context: harnesses/codex", "context: custom/context", 1)
+	raw := strings.Replace(
+		string(source[filename].Data),
+		"context: harnesses/codex/context",
+		"context: custom/context",
+		1,
+	)
 	raw = strings.Replace(raw, "dockerfile: Dockerfile\n", "dockerfile: Customfile\n", 1)
 	source[filename].Data = []byte(raw)
 	source["custom/context/Customfile"] = &fstest.MapFile{Data: []byte("FROM ${IMAGE_PREFIX}base-user:${TAG}\n")}

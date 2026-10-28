@@ -31,6 +31,7 @@ import (
 
 	"github.com/distribution/reference"
 	model "github.com/eminwux/kukeon/pkg/api/model/kuketeams"
+	api "github.com/eminwux/kukeon/pkg/api/model/v1beta1"
 	"gopkg.in/yaml.v3"
 )
 
@@ -44,11 +45,27 @@ type Harness struct {
 }
 
 type Spec struct {
-	SkillPath  string              `json:"skillPath"       yaml:"skillPath"`
-	MakeTarget string              `json:"makeTarget"      yaml:"makeTarget"`
-	Template   string              `json:"template"        yaml:"template"`
-	Seeds      []model.HarnessSeed `json:"seeds,omitempty" yaml:"seeds,omitempty"`
-	Images     []Image             `json:"images"          yaml:"images"`
+	SkillPath   string                       `json:"skillPath"             yaml:"skillPath"`
+	Renderer    string                       `json:"renderer"              yaml:"renderer"`
+	Shell       string                       `json:"shell"                 yaml:"shell"`
+	OnInit      []Script                     `json:"onInit"                yaml:"onInit"`
+	Environment map[string]string            `json:"environment,omitempty" yaml:"environment,omitempty"`
+	Parameters  []api.CellBlueprintParameter `json:"parameters,omitempty"  yaml:"parameters,omitempty"`
+	StatePath   string                       `json:"statePath,omitempty"   yaml:"statePath,omitempty"`
+	Mounts      []Mount                      `json:"mounts,omitempty"      yaml:"mounts,omitempty"`
+	Seeds       []model.HarnessSeed          `json:"seeds,omitempty"       yaml:"seeds,omitempty"`
+	Images      []Image                      `json:"images"                yaml:"images"`
+}
+
+// Script is opaque shell source, never a Go template. New lifecycle hooks are
+// intentionally unsupported by this version of the renderer contract.
+type Script struct {
+	Script string `json:"script" yaml:"script"`
+}
+type Mount struct {
+	Source   string `json:"source"             yaml:"source"`
+	Target   string `json:"target"             yaml:"target"`
+	ReadOnly bool   `json:"readOnly,omitempty" yaml:"readOnly,omitempty"`
 }
 
 type Image struct {
@@ -78,6 +95,8 @@ type CatalogImage struct {
 	Capabilities []string `json:"capabilities" yaml:"capabilities"`
 }
 
+var envPattern = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+
 var namePattern = regexp.MustCompile(`^[a-z0-9]+(?:[._-][a-z0-9]+)*$`)
 
 // Load decodes one strict document and checks the authored build contract.
@@ -97,8 +116,45 @@ func (h *Harness) Validate() error {
 	if h == nil || h.APIVersion != APIVersion || h.Kind != "Harness" || !namePattern.MatchString(h.Metadata.Name) {
 		return errors.New("require kuketeams.io/v1 Harness with valid metadata.name")
 	}
-	if h.Spec.SkillPath == "" || !namePattern.MatchString(h.Spec.MakeTarget) || !relative(h.Spec.Template) {
-		return errors.New("require skillPath, valid makeTarget and relative template")
+	if h.Spec.Renderer != "kukeon/v1beta1" {
+		return fmt.Errorf(
+			"spec.renderer: unsupported %q; select bundled kukeon/v1beta1 (migrate legacy template/makeTarget to renderer/onInit)",
+			h.Spec.Renderer,
+		)
+	}
+	if h.Spec.SkillPath == "" || (h.Spec.Shell != "/bin/bash" && h.Spec.Shell != "/bin/sh") || len(h.Spec.OnInit) == 0 {
+		return errors.New("require skillPath, shell (/bin/bash or /bin/sh), and nonempty ordered spec.onInit scripts")
+	}
+	for _, stage := range h.Spec.OnInit {
+		if strings.TrimSpace(stage.Script) == "" {
+			return errors.New("spec.onInit: script must not be empty")
+		}
+	}
+	namesOfParams := map[string]bool{"PROMPT": true, "AGENT_NAME": true}
+	for _, param := range h.Spec.Parameters {
+		if !envPattern.MatchString(param.Name) || namesOfParams[param.Name] {
+			return errors.New("spec.parameters: invalid, reserved or duplicate name")
+		}
+		namesOfParams[param.Name] = true
+	}
+	for name := range h.Spec.Environment {
+		if !envPattern.MatchString(name) ||
+			slices.Contains(
+				[]string{
+					"ROLE_SOURCE_DIR",
+					"ROLE_PATH",
+					"INITIAL_PATH",
+					"HARNESS_SETTINGS",
+					"PROMPT",
+					"AGENT_NAME",
+					"HOME",
+					"GIT_SSH_COMMAND",
+					"IS_SANDBOX",
+				},
+				name,
+			) {
+			return errors.New("spec.environment: invalid or reserved input name")
+		}
 	}
 	if len(h.Spec.Images) == 0 {
 		return errors.New("spec.images: at least one image required")
@@ -235,7 +291,11 @@ func read(source fs.FS, filename string, out any) error {
 	d := yaml.NewDecoder(bytes.NewReader(raw))
 	d.KnownFields(true)
 	if decodeErr := d.Decode(out); decodeErr != nil {
-		return fmt.Errorf("%s: %w", filename, decodeErr)
+		return fmt.Errorf(
+			"%s: %w; legacy template/makeTarget must migrate to renderer/onInit; unknown requested fields are unsupported",
+			filename,
+			decodeErr,
+		)
 	}
 	var extra any
 	if extraErr := d.Decode(&extra); !errors.Is(extraErr, io.EOF) {

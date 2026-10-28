@@ -18,16 +18,13 @@
 package harnessassets_test
 
 import (
-	"bytes"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
-	"text/template"
 
 	"github.com/eminwux/kuketeams/pkg/harness"
-	"gopkg.in/yaml.v3"
 )
 
 const root = "../../harnesses"
@@ -82,10 +79,10 @@ func TestCatalogAndBuildClosure(t *testing.T) {
 			if !slices.Equal(image.Capabilities, published.Capabilities) {
 				t.Fatal("capability drift")
 			}
-			if image.Build.Context != "harnesses/"+name {
+			if image.Build.Context != "harnesses/"+name+"/context" {
 				t.Fatal("context escapes harness directory")
 			}
-			checkDockerfile(t, name, filepath.Join(name, image.Build.Dockerfile))
+			checkDockerfile(t, name, filepath.Join(name, "context", image.Build.Dockerfile))
 		}
 	}
 	if len(expected) != 0 {
@@ -99,93 +96,12 @@ func TestCatalogAndBuildClosure(t *testing.T) {
 	read(t, "base/Dockerfile")
 }
 
-func TestTemplatesWithSiblingPartials(t *testing.T) {
-	for _, harness := range []string{"claude", "codex", "opencode"} {
-		t.Run(harness, func(t *testing.T) {
-			var definition struct {
-				Kind string `yaml:"kind"`
-				Spec struct {
-					Template string `yaml:"template"`
-				} `yaml:"spec"`
-			}
-			if err := yaml.Unmarshal(read(t, harness+"/harness.yaml"), &definition); err != nil {
-				t.Fatal(err)
-			}
-			if definition.Kind != "Harness" || definition.Spec.Template != "blueprint.tmpl.yaml" {
-				t.Fatal("invalid harness template reference")
-			}
-			funcs := template.FuncMap{
-				"upper":   strings.ToUpper,
-				"replace": func(old, replacement, value string) string { return strings.ReplaceAll(value, old, replacement) },
-			}
-			tmpl, parseErr := template.New(definition.Spec.Template).
-				Funcs(funcs).
-				Option("missingkey=error").
-				ParseGlob(filepath.Join(root, harness, "*.tmpl.yaml"))
-			if parseErr != nil {
-				t.Fatal(parseErr)
-			}
-			for _, rootUser := range []bool{false, true} {
-				for _, projectBound := range []bool{false, true} {
-					imageNeeds := []string{harness, "git"}
-					home := "/home/user"
-					if rootUser {
-						imageNeeds = append(imageNeeds, "root")
-					}
-					projectDir := ""
-					if projectBound {
-						projectDir = "/host/project"
-					}
-					data := map[string]any{
-						"makeTarget": harness,
-						"role": map[string]any{
-							"path": "roles/operator", "sourceDir": "/home/user/kuketeams", "initialPath": `"$HOME"`,
-							"name": "fixture",
-						}, "realm": "default", "space": "default", "stack": "default", "image": "fixture:latest",
-						"needs": map[string]any{
-							"image":  imageNeeds,
-							"repos":  []string{"agents", "project"},
-							"mounts": []string{"ssh", "kukeond-socket", "kuke-binary", "kukeon-install"},
-							"params": []string{"ROLE", "PROMPT", "CUSTOM"},
-						},
-						"project": map[string]any{
-							"X":           "fixture",
-							"PROJECT_DIR": projectDir,
-							"CLONE_DIR":   "/home/user/example",
-							"NAME":        "example",
-							"AGENTS_REPO": "eminwux/agents",
-						},
-						"operator": map[string]any{
-							"X":              "fixture",
-							"HOME_DIR":       "/host/home",
-							"TEAM_ROOT":      "/host/team",
-							"GIT_USER_NAME":  "Fixture",
-							"GIT_USER_EMAIL": "fixture@example.org",
-						},
-						"harnesses": map[string]any{
-							harness: map[string]any{
-								"secrets":     []string{"test-token"},
-								"settings":    "config/claude.settings.json",
-								"sandbox":     "danger-full-access",
-								"approval":    "never",
-								"permissions": "allow",
-							},
-						},
-					}
-					var out bytes.Buffer
-					if err := tmpl.Execute(&out, data); err != nil {
-						t.Fatal(err)
-					}
-					checkTemplateOutput(t, &out, home, rootUser)
-				}
-			}
-		})
-	}
-}
-
 func checkDockerfile(t *testing.T, harness, path string) {
 	t.Helper()
 	content := string(read(t, path))
+	if !strings.Contains(content, "COPY Makefile.start /opt/kuketeams/harness/Makefile.start") {
+		t.Fatal("missing startup adapter")
+	}
 	for _, line := range strings.Split(content, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
@@ -194,7 +110,7 @@ func checkDockerfile(t *testing.T, harness, path string) {
 		switch fields[0] {
 		case "COPY":
 			for _, source := range fields[1 : len(fields)-1] {
-				read(t, filepath.Join(harness, source))
+				read(t, filepath.Join(harness, "context", source))
 			}
 		case "FROM":
 			if !strings.HasPrefix(fields[1], "${IMAGE_PREFIX}base-") || !strings.HasSuffix(fields[1], ":${TAG}") {
@@ -203,37 +119,6 @@ func checkDockerfile(t *testing.T, harness, path string) {
 			base := strings.TrimSuffix(strings.TrimPrefix(fields[1], "${IMAGE_PREFIX}base-"), ":${TAG}")
 			read(t, "base/Dockerfile."+base)
 		}
-	}
-}
-
-func checkTemplateOutput(t *testing.T, out *bytes.Buffer, home string, rootUser bool) {
-	t.Helper()
-	var blueprint map[string]any
-	if err := yaml.Unmarshal(out.Bytes(), &blueprint); err != nil {
-		t.Fatalf("invalid rendered YAML: %v", err)
-	}
-	if blueprint["kind"] != "CellBlueprint" {
-		t.Fatal("wrong rendered kind")
-	}
-	for _, value := range []string{"workingDir: " + home, "target: " + home + "/.ssh", "source: /host/home/.ssh", "envName: TEST_TOKEN", "signingKey:     /home/user/.ssh/id_ed25519.pub", "target: /home/user/agents"} {
-		if !strings.Contains(out.String(), value) {
-			t.Fatalf("missing %q", value)
-		}
-	}
-	if strings.Contains(out.String(), "<no value>") || strings.Contains(out.String(), "{{") {
-		t.Fatal("unresolved template")
-	}
-	if strings.Contains(out.String(), "/root") || strings.Contains(out.String(), "/home/claude") {
-		t.Fatal("legacy home path in rendered blueprint")
-	}
-	if strings.Contains(out.String(), "nestedCgroupRuntime: true") != rootUser {
-		t.Fatal("nested runtime capability changed")
-	}
-	if strings.Contains(out.String(), `ssh -F "$(if [ -f /home/user/.ssh/config ]`) != rootUser {
-		t.Fatal("root SSH config handling changed")
-	}
-	if strings.Contains(out.String(), "privileged: true") != rootUser {
-		t.Fatal("root privilege changed")
 	}
 }
 
@@ -248,7 +133,21 @@ func TestSourceInventoryIsPackaged(t *testing.T) {
 		if fields[3] == "harnesses/images.yaml" {
 			continue
 		}
-		path := filepath.Join("../..", fields[3])
+		asset := fields[3]
+		if strings.HasSuffix(asset, "partials.tmpl.yaml") {
+			asset = "renderers/kukeon/v1beta1/partials.tmpl.yaml"
+		}
+		if strings.HasSuffix(asset, "blueprint.tmpl.yaml") {
+			asset = "renderers/kukeon/v1beta1/blueprint.tmpl.yaml"
+		}
+		for _, name := range []string{"claude", "codex", "opencode"} {
+			prefix := "harnesses/" + name + "/"
+			if strings.HasPrefix(asset, prefix) &&
+				(strings.HasPrefix(strings.TrimPrefix(asset, prefix), "Dockerfile") || strings.Contains(asset, "/hooks/") || strings.HasSuffix(asset, "requirements.toml")) {
+				asset = prefix + "context/" + strings.TrimPrefix(asset, prefix)
+			}
+		}
+		path := filepath.Join("../..", asset)
 		info, err := os.Stat(path)
 		if err != nil {
 			t.Fatal(err)

@@ -19,3 +19,5 @@ ENV PATH=/home/user/.local/bin:$PATH
 
 RUN npm install -g @openai/codex@"${CODEX_VERSION}" \
  && echo 'export PATH=$HOME/.local/bin:$PATH' >> /home/user/.bashrc
+
+COPY Makefile.start /opt/kuketeams/harness/Makefile.start

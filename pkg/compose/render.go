@@ -22,8 +22,11 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"maps"
 	"path"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"text/template"
 
@@ -31,6 +34,8 @@ import (
 	api "github.com/eminwux/kukeon/pkg/api/model/v1beta1"
 	"github.com/eminwux/kuketeams/pkg/config"
 	"github.com/eminwux/kuketeams/pkg/harness"
+	"github.com/eminwux/kuketeams/renderers"
+	"gopkg.in/yaml.v3"
 )
 
 func checkAssets(source fs.FS, rolePath string, role *model.Role, settings model.RoleHarness, harness string) error {
@@ -91,35 +96,40 @@ func checkSettings(h string, s model.RoleHarness) error {
 	return nil
 }
 
-func render(source fs.FS, hpath string, h *harness.Harness, role *model.Role, selection config.Role,
+// rendererInput is contract revision 1 for the bundled kukeon/v1beta1 set.
+// Lists and mounts remain structured; scripts are opaque shell source.
+type rendererInput struct {
+	Realm, Space, Stack, Image, Harness, Shell, Prompt string
+	RoleName, ProjectName, HostHome                    string
+	ProjectBound                                       bool
+	Root                                               bool
+	Repos, MountSelectors, Secrets                     []string
+	Environment                                        []string
+	Parameters                                         []api.CellBlueprintParameter
+	Mounts                                             []harness.Mount
+	StatePath                                          string
+	OnInit                                             []harness.Script
+}
+
+func render(h *harness.Harness, role *model.Role, selection config.Role,
 	repo config.Source, image harness.CatalogImage, needs []string, sources []config.Source, opts Options,
 ) (*api.CellBlueprintDoc, error) {
-	if !fs.ValidPath(h.Spec.Template) {
-		return nil, errors.New("harness template: require a source-relative filename")
+	if err := h.Validate(); err != nil {
+		return nil, err
 	}
-	filename := path.Join(hpath, h.Spec.Template)
-	files, globErr := fs.Glob(source, path.Join(path.Dir(filename), "*.tmpl.yaml"))
-	if globErr != nil {
-		return nil, fmt.Errorf("list template partials: %w", globErr)
-	}
-	// Include the declared entry even if it has a different supported filename.
-	if !slices.Contains(files, filename) {
-		files = append(files, filename)
-		slices.Sort(files)
-	}
+	const filename = "blueprint.tmpl.yaml"
 	funcs := template.FuncMap{
-		"upper":   strings.ToUpper,
-		"replace": func(old, newValue, value string) string { return strings.ReplaceAll(value, old, newValue) },
+		"upper":      strings.ToUpper,
+		"replace":    func(old, newValue, value string) string { return strings.ReplaceAll(value, old, newValue) },
+		"quote":      strconv.Quote,
+		"yamlIndent": yamlIndent,
 	}
-	tpl := template.New(path.Base(filename)).Funcs(funcs).Option("missingkey=error")
-	for _, file := range files {
-		raw, err := fs.ReadFile(source, file)
-		if err != nil {
-			return nil, fmt.Errorf("read template %s: %w", file, err)
-		}
-		if _, parseErr := tpl.New(path.Base(file)).Parse(string(raw)); parseErr != nil {
-			return nil, fmt.Errorf("parse template %s: %w", file, parseErr)
-		}
+	tpl, err := template.New(filename).
+		Funcs(funcs).
+		Option("missingkey=error").
+		ParseFS(renderers.Templates, "kukeon/v1beta1/*.tmpl.yaml")
+	if err != nil {
+		return nil, fmt.Errorf("bundled renderer: %w", err)
 	}
 	settings := role.Spec.Harnesses[h.Metadata.Name]
 	secretNames := union(role.Spec.Needs.Secrets, settings.Secrets)
@@ -134,12 +144,11 @@ func render(source fs.FS, hpath string, h *harness.Harness, role *model.Role, se
 			return nil, fmt.Errorf("sources: missing clonePath for required repository %q", name)
 		}
 	}
-	project := map[string]string{"PROJECT_DIR": "", "CLONE_DIR": "", "NAME": "", "AGENTS_REPO": "", "X": ""}
-	if slices.Contains(role.Spec.Needs.Repos, "project") {
+	projectName := ""
+	projectBound := slices.Contains(role.Spec.Needs.Repos, "project")
+	if projectBound {
 		r, _ := runtimeSource(sources, "project")
-		project["PROJECT_DIR"] = r.ClonePath
-		project["CLONE_DIR"] = r.ClonePath
-		project["NAME"] = path.Base(r.ClonePath)
+		projectName = path.Base(r.ClonePath)
 	}
 	for _, mount := range role.Spec.Needs.Mounts {
 		if mount == "ssh" && !config.SafePath(opts.HomeDir) {
@@ -149,26 +158,16 @@ func render(source fs.FS, hpath string, h *harness.Harness, role *model.Role, se
 	if !fs.ValidPath(selection.Path) || !config.SafePath("/"+selection.Path) {
 		return nil, errors.New("role path: require a safe source-relative path")
 	}
-	ctx := map[string]any{
-		"realm": opts.Scope.Realm, "space": opts.Scope.Space, "stack": opts.Scope.Stack, "image": image.Image,
-		"role": map[string]any{
-			"name":        role.Metadata.Name,
-			"path":        selection.Path,
-			"sourceDir":   repo.ClonePath,
-			"initialPath": initialPathShell(selection.InitialPath),
-		},
-		"makeTarget": h.Spec.MakeTarget,
-		"needs": map[string]any{
-			"image":  needs,
-			"repos":  sourceRepos,
-			"mounts": role.Spec.Needs.Mounts,
-			"params": role.Spec.Needs.Params,
-		},
-		"harnesses": map[string]any{h.Metadata.Name: map[string]any{
-			"settings": settings.Settings, "sandbox": settings.Sandbox,
-			"approval": settings.Approval, "permissions": settings.Permissions, "secrets": secretNames,
-		}},
-		"project": project, "operator": map[string]string{"HOME_DIR": opts.HomeDir, "TEAM_ROOT": opts.TeamDir, "X": "", "GIT_USER_NAME": "", "GIT_USER_EMAIL": ""},
+	environment, parameters, mounts, statePath, err := startupInputs(h, role, selection, repo, needs, opts)
+	if err != nil {
+		return nil, err
+	}
+	ctx := rendererInput{
+		Realm: opts.Scope.Realm, Space: opts.Scope.Space, Stack: opts.Scope.Stack, Image: image.Image,
+		Harness: h.Metadata.Name, Shell: h.Spec.Shell, Prompt: h.Metadata.Name + "> ",
+		RoleName: role.Metadata.Name, ProjectName: projectName, ProjectBound: projectBound, HostHome: opts.HomeDir,
+		Root: slices.Contains(needs, "root"), Repos: sourceRepos, MountSelectors: role.Spec.Needs.Mounts,
+		Secrets: secretNames, Environment: environment, Parameters: parameters, Mounts: mounts, StatePath: statePath, OnInit: h.Spec.OnInit,
 	}
 	var output bytes.Buffer
 	if err := tpl.ExecuteTemplate(&output, path.Base(filename), ctx); err != nil {
@@ -184,13 +183,153 @@ func render(source fs.FS, hpath string, h *harness.Harness, role *model.Role, se
 	return &bp, nil
 }
 
-// initialPathShell expands only the validated leading HOME token at runtime.
-func initialPathShell(value string) string {
-	if value == "" || value == "$HOME" {
-		return `"$HOME"`
+// yamlIndent serializes structural inputs, including opaque shell scripts, rather
+// than constructing YAML or shell source by concatenating user-supplied values.
+func yamlIndent(indent int, value any) (string, error) {
+	raw, err := yaml.Marshal(value)
+	if err != nil {
+		return "", err
 	}
-	if suffix, ok := strings.CutPrefix(value, "$HOME/"); ok {
-		return `"$HOME/` + suffix + `"`
+	prefix := strings.Repeat(" ", indent)
+	return prefix + strings.ReplaceAll(strings.TrimSuffix(string(raw), "\n"), "\n", "\n"+prefix), nil
+}
+
+var inputToken = regexp.MustCompile(`\$\{([^}]*)\}`)
+
+var parameterName = regexp.MustCompile(`^[A-Z_][A-Z0-9_]*$`)
+
+func startupInputs(h *harness.Harness, role *model.Role, selection config.Role, repo config.Source,
+	needs []string, opts Options,
+) ([]string, []api.CellBlueprintParameter, []harness.Mount, string, error) {
+	const home = "/home/user"
+	settings := role.Spec.Harnesses[h.Metadata.Name]
+	sandbox, approval := settings.Sandbox, settings.Approval
+	if sandbox == "" || slices.Contains(needs, "root") {
+		sandbox = "danger-full-access"
 	}
-	return `"` + value + `"`
+	if approval == "" || slices.Contains(needs, "root") {
+		approval = "never"
+	}
+	initial := selection.InitialPath
+	if initial == "" {
+		initial = home
+	}
+	initial = strings.Replace(initial, "$HOME", home, 1)
+	if initial != "/" && !config.SafePath(initial) {
+		return nil, nil, nil, "", errors.New("INITIAL_PATH: require absolute safe launch directory")
+	}
+	if !config.SafePath(repo.ClonePath) {
+		return nil, nil, nil, "", errors.New("ROLE_SOURCE_DIR: require absolute safe checkout path")
+	}
+	values := map[string]string{
+		"HOME": home, "ROLE_SOURCE_DIR": repo.ClonePath, "ROLE_PATH": selection.Path, "INITIAL_PATH": initial,
+		"ROLE_NAME": role.Metadata.Name, "SETTINGS": settings.Settings, "SANDBOX": sandbox, "APPROVAL": approval,
+		"PERMISSIONS": settings.Permissions, "TEAM_ROOT": opts.TeamDir,
+	}
+	parameters, err := startupParameters(h, role, values)
+	if err != nil {
+		return nil, nil, nil, "", err
+	}
+	resolve := inputResolver(values)
+	env := []string{
+		"ROLE_SOURCE_DIR=" + repo.ClonePath, "ROLE_PATH=" + selection.Path, "INITIAL_PATH=" + initial,
+		"HARNESS_SETTINGS=" + settings.Settings, "PROMPT=${PROMPT}", "AGENT_NAME=${AGENT_NAME}",
+	}
+	for _, key := range slices.Sorted(maps.Keys(h.Spec.Environment)) {
+		value, resolveErr := resolve(h.Spec.Environment[key])
+		if resolveErr != nil {
+			return nil, nil, nil, "", resolveErr
+		}
+		env = append(env, key+"="+value)
+	}
+	if slices.Contains(role.Spec.Needs.Repos, "project") {
+		env = append(env, "AGENTS_REPO=")
+	}
+	ssh := "ssh"
+	if slices.Contains(needs, "root") {
+		env = append(env, "IS_SANDBOX=1")
+		ssh += ` -F "$(if [ -f /home/user/.ssh/config ]; then printf %s /home/user/.ssh/config; else printf %s /dev/null; fi)"`
+	}
+	env = append(
+		env,
+		"GIT_SSH_COMMAND="+ssh+" -i /home/user/.ssh/id_ed25519 -o StrictHostKeyChecking=accept-new -o UserKnownHostsFile=/home/user/.ssh/known_hosts",
+	)
+	statePath, err := resolve(h.Spec.StatePath)
+	if err != nil {
+		return nil, nil, nil, "", err
+	}
+	if statePath != "" && !config.SafePath(statePath) {
+		return nil, nil, nil, "", errors.New("spec.statePath: require safe absolute or $HOME path")
+	}
+	mounts := slices.Clone(h.Spec.Mounts)
+	for i := range mounts {
+		mounts[i].Source, err = resolve(mounts[i].Source)
+		if err != nil {
+			return nil, nil, nil, "", err
+		}
+		mounts[i].Target, err = resolve(mounts[i].Target)
+		if err != nil {
+			return nil, nil, nil, "", err
+		}
+		if !config.SafePath(mounts[i].Source) || !config.SafePath(mounts[i].Target) {
+			return nil, nil, nil, "", errors.New("spec.mounts: require safe absolute source/target paths")
+		}
+	}
+	return env, parameters, mounts, statePath, nil
+}
+
+func startupParameters(
+	h *harness.Harness,
+	role *model.Role,
+	values map[string]string,
+) ([]api.CellBlueprintParameter, error) {
+	parameters := []api.CellBlueprintParameter{
+		{Name: "PROMPT", Default: new(string)}, {Name: "AGENT_NAME", Default: new(string)},
+	}
+	parameters = append(parameters, h.Spec.Parameters...)
+	for _, name := range role.Spec.Needs.Params {
+		if !parameterName.MatchString(name) {
+			return nil, fmt.Errorf("role needs.params: invalid parameter name %q", name)
+		}
+		if !slices.ContainsFunc(parameters, func(p api.CellBlueprintParameter) bool { return p.Name == name }) {
+			parameters = append(parameters, api.CellBlueprintParameter{Name: name, Required: true})
+		}
+	}
+	for _, p := range parameters {
+		for _, stage := range h.Spec.OnInit {
+			if strings.Contains(stage.Script, "${"+p.Name+"}") {
+				return nil, fmt.Errorf(
+					"spec.onInit: ${%s} would interpolate a blueprint parameter into shell source; use $%s and pass values through environment",
+					p.Name,
+					p.Name,
+				)
+			}
+		}
+		if _, reserved := values[p.Name]; reserved {
+			return nil, fmt.Errorf("parameter %s conflicts with startup input", p.Name)
+		}
+		values[p.Name] = "${" + p.Name + "}"
+	}
+	return parameters, nil
+}
+
+func inputResolver(values map[string]string) func(string) (string, error) {
+	const home = "/home/user"
+	return func(raw string) (string, error) {
+		var invalid bool
+		result := inputToken.ReplaceAllStringFunc(raw, func(token string) string {
+			name := token[2 : len(token)-1]
+			value, ok := values[name]
+			if !ok {
+				invalid = true
+			}
+			return value
+		})
+		if invalid {
+			return "", errors.New(
+				"harness renderer input: unsupported environment substitution; use documented inputs or declared parameters",
+			)
+		}
+		return strings.Replace(result, "$HOME", home, 1), nil
+	}
 }

@@ -9,7 +9,7 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[3]
-HOOK = ROOT / "harnesses/codex/hooks/reflect-stop.py"
+HOOK = ROOT / "harnesses/codex/context/hooks/reflect-stop.py"
 ROLES = ("dev", "pm", "pr-reviewer", "meta-dev", "meta-pm", "meta-reviewer")
 
 

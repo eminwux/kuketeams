@@ -35,7 +35,7 @@ func TestInvalidHarnessSchema(t *testing.T) {
 	for _, test := range []struct{ name, old, value, want string }{
 		{"duplicate", "name: codex-root", "name: codex", "duplicate or invalid image name"},
 		{"invalid-name", "name: codex-root", "name: Invalid/Name", "invalid image name"},
-		{"context", "context: harnesses/codex", "context: ../escape", "repository-relative"},
+		{"context", "context: harnesses/codex/context", "context: ../escape", "repository-relative"},
 		{"dockerfile", "dockerfile: Dockerfile.root", "dockerfile: /escape", "context-relative"},
 		{"capability", "[codex, git, gh, go, node, make, root]", "[git, root]", "include harness"},
 		{"obsolete-ref", "    - name: codex-root", "    - ref: codex-root", "field ref not found"},

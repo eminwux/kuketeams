@@ -1,8 +1,0 @@
-apiVersion: kuketeams.io/v1
-kind: Harness
-metadata:
-  name: codex
-spec:
-  skillPath: $HOME/.agents/skills
-  makeTarget: codex
-  template: blueprint.tmpl.yaml

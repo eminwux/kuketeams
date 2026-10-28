@@ -4,13 +4,13 @@ After `kuketeams init`, register a named team without a local project checkout o
 Team file:
 
 ```sh
-kuketeams add kukeon --source git@github.com:eminwux/kukeon.git
-kuketeams add kukeon --source ssh://git@work-alias:2222/eminwux/kukeon.git --branch develop
-kuketeams add kukeon --source https://github.com/eminwux/kukeon.git --tag v1.0.0
-kuketeams add kukeon --source github.com/eminwux/kukeon --commit <full-commit-object-id>
+kuketeams add kukeon-dev --source git@github.com:eminwux/kukeon.git
+kuketeams add kukeon-dev --source ssh://git@work-alias:2222/eminwux/kukeon.git --branch develop
+kuketeams add kukeon-dev --source https://github.com/eminwux/kukeon.git --tag v1.0.0
+kuketeams add kukeon-dev --source github.com/eminwux/kukeon --commit <full-commit-object-id>
 ```
 
-The positional argument names the team; `root` is reserved for init. Exactly one
+The positional argument names the team; `root` remains reserved for legacy registrations. Exactly one
 of `--branch`, `--tag`, or `--commit` may be supplied. Commits require a full
 40- or 64-character hexadecimal object ID. Without a selector, native
 `git ls-remote --symref` discovers the remote HEAD branch and saves that branch
@@ -27,6 +27,12 @@ same [Unix socket and client configuration precedence](initialization.md) as ini
 `--host`, `KUKEON_HOST`, `ClientConfiguration.spec.host`, then the default socket.
 `--configuration` selects the client file, followed by `KUKE_CONFIGURATION` and
 `~/.kuke/kuke.yaml`. Use kuke to provision the daemon and parent scopes first.
+
+Init leaves global defaults empty. Configure reusable sources, roles, and
+harnesses first (see the [post-init example](composition.md#reusable-defaults-after-init)),
+or provide explicit selections in a directory's Team declaration. Operator
+selections in `kukeon.yaml` do not become defaults for project teams. Choose a
+project team name distinct from the operator's `kukeon` identity.
 
 Add reads global role/harness selections, Git identity, parameters, and scoped
 secret bindings. It selects published images from the selected definition
@@ -49,12 +55,12 @@ original omitted/explicit `spec` selections:
 apiVersion: kuketeams.io/v1
 kind: TeamEntry
 metadata:
-  name: kukeon
+  name: kukeon-dev
 projectSource:
   name: project
   url: git@github.com:eminwux/kukeon.git
   branch: main # Example only: actual remote HEAD is discovered.
-  clonePath: /home/user/kukeon
+  clonePath: /home/user/kukeon-dev
 spec: {}
 ```
 

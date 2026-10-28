@@ -115,6 +115,12 @@ func checkNode(n *yaml.Node, typ reflect.Type, field string, active map[*yaml.No
 				return fmt.Errorf("%s: duplicate key (line %d)", next, key.Line)
 			}
 			seen[name] = true
+			if strings.HasPrefix(field, "spec.harnesses[") && name == "default" {
+				return fmt.Errorf(
+					"%s: supported only in TeamsConfig defaults; omit default to select this harness",
+					next,
+				)
+			}
 			childType, ok := fields[name]
 			if !ok {
 				return fmt.Errorf("%s: unknown field (line %d)", next, key.Line)
@@ -154,6 +160,14 @@ func checkNode(n *yaml.Node, typ reflect.Type, field string, active map[*yaml.No
 		if (strings.HasPrefix(field, "spec.defaults.roles[") || strings.HasPrefix(field, "spec.roles[")) &&
 			strings.HasSuffix(field, ".harness") {
 			if err := required(field, n.Value); err != nil {
+				return err
+			}
+		}
+		if strings.HasSuffix(field, ".initialPath") {
+			if n.Value == "" {
+				return fmt.Errorf("%s: omit the field for home fallback or use $HOME", field)
+			}
+			if err := validateInitialPath(field, n.Value); err != nil {
 				return err
 			}
 		}

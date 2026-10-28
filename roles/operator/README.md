@@ -12,7 +12,7 @@ self-contained: skill paths in [`role.yaml`](role.yaml) are **source-checkout
 relative**, matching agents conventions; Claude's `settings` is **role-relative**.
 No common or specialized agents roles, hooks, status lines, GitHub CLI, or GitHub
 credentials are required. The `go` image capability matches the initial
-TeamsConfig selection; it does not dynamically install runtime prerequisites.
+kukeon TeamEntry selection; it does not dynamically install runtime prerequisites.
 
 ## Prerequisites and authority
 
@@ -33,7 +33,7 @@ TeamsConfig selection; it does not dynamically install runtime prerequisites.
   OpenCode's selected configuration still requires `openrouter-api-key`, mapped
   to `OPENROUTER_API_KEY`. Supply credentials through the configured mechanism,
   never role files. The installer neither checks nor modifies authentication.
-- `root` is the initial team's name. This role requests no `root` capability,
+- `kukeon` is the initial team's name. This role requests no `root` capability,
   privileged runtime, sudo, host filesystem/SSH mount, or GitHub token. An
   authorized daemon connection can still mutate runtime resources: target and
   operation authorization come from the user's request.
@@ -63,6 +63,17 @@ codex --sandbox workspace-write --ask-for-approval on-request
 # Set OPENROUTER_MODEL to the selected provider/model; authentication is supplied separately.
 opencode
 ```
+
+Init applies the `kukeon-operator-codex` and `kukeon-operator-claude`
+blueprints/configs without starting cells. Launch explicitly with kuke, for example:
+
+```sh
+kuke run --from-config kukeon-operator-codex --realm default --space default --stack default --name operator
+```
+
+Both start in the in-cell `$HOME`. Set the accepted entry's role `initialPath`
+to an absolute in-cell directory or `$HOME/subdirectory` to change that location;
+role assets remain installed from `roles/operator` independently.
 
 The adapters do not bypass permission prompts or add privileges. Access outside
 Codex's workspace sandbox may need an approved escalation or an explicitly

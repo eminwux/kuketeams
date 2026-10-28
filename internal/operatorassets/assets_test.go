@@ -30,6 +30,7 @@ import (
 	"testing"
 
 	"github.com/eminwux/kuketeams/internal/bootstrap"
+	"github.com/eminwux/kuketeams/pkg/config"
 	"gopkg.in/yaml.v3"
 )
 
@@ -83,13 +84,16 @@ type definition struct {
 }
 
 func TestDefaultRoleAssets(t *testing.T) {
-	// Resolve the actual bootstrap selection, rather than duplicating its path
+	// Resolve the actual initial operator selection, rather than duplicating its path
 	// in a fixture that could pass while init points at a different role.
 	result, err := bootstrap.Run(t.Context(), bootstrap.Options{Root: t.TempDir(), Git: noGit{}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	roles := result.Config.Spec.Defaults.Roles
+	roles := config.Operator().Spec.Roles
+	if len(result.Config.Spec.Defaults.Roles) != 0 {
+		t.Fatal("bootstrap seeded operator globally")
+	}
 	if len(roles) != 1 {
 		t.Fatalf("default roles: %+v", roles)
 	}

@@ -67,7 +67,7 @@ func TestRunPreservesAuthoredConfigurationAndEntry(t *testing.T) {
 		if runErr != nil {
 			t.Fatal(runErr)
 		}
-		if result.Resources != 2 || result.EntryPath != filepath.Join(opts.Root, "kuketeam.d", "root.yaml") {
+		if result.Resources != 4 || result.EntryPath != filepath.Join(opts.Root, "kuketeam.d", "kukeon.yaml") {
 			t.Fatalf("result=%+v", result)
 		}
 		after, readErr := os.ReadFile(path)
@@ -82,8 +82,9 @@ func TestRunPreservesAuthoredConfigurationAndEntry(t *testing.T) {
 		if decodeErr != nil {
 			t.Fatal(decodeErr)
 		}
-		if entry.Metadata.Name != "root" || entry.Spec.Roles != nil || entry.Spec.Sources != nil {
-			t.Fatal("authored inheritance was flattened")
+		if entry.Metadata.Name != "kukeon" || len(entry.Spec.Roles) != 1 || len(entry.Spec.Sources) != 1 ||
+			len(entry.Spec.Harnesses) != 2 {
+			t.Fatal("initial explicit declaration lost")
 		}
 		info, statErr := os.Stat(result.EntryPath)
 		if statErr != nil || info.Mode().Perm() != 0o600 {
@@ -91,7 +92,7 @@ func TestRunPreservesAuthoredConfigurationAndEntry(t *testing.T) {
 		}
 	}
 	f := opts.Client.(*fakeClient)
-	if f.applies != 2 || f.team != "root" {
+	if f.applies != 2 || f.team != "kukeon" {
 		t.Fatal("rerun did not update stable identity")
 	}
 }
@@ -99,9 +100,9 @@ func TestRunPreservesAuthoredConfigurationAndEntry(t *testing.T) {
 func TestRegistrationOnlyChangesAfterFullSuccess(t *testing.T) {
 	for _, existing := range []bool{false, true} {
 		for _, mode := range []string{"rpc", "total", "partial", "preflight"} {
-			t.Run(fmt.Sprintf("existing=%t/%s", existing, mode), func(t *testing.T) {
+			t.Run(fmt.Sprintf("existing-%t/%s", existing, mode), func(t *testing.T) {
 				opts := setupRun(t)
-				entryPath := filepath.Join(opts.Root, "kuketeam.d", "root.yaml")
+				entryPath := filepath.Join(opts.Root, "kuketeam.d", "kukeon.yaml")
 				if existing {
 					if _, err := Run(t.Context(), opts); err != nil {
 						t.Fatal(err)
@@ -143,7 +144,7 @@ func TestRegistrationOnlyChangesAfterFullSuccess(t *testing.T) {
 					t.Fatal(readErr)
 				}
 				for _, entry := range entries {
-					if strings.HasPrefix(entry.Name(), ".root-") {
+					if strings.HasPrefix(entry.Name(), ".kukeon-") {
 						t.Fatal("staging file leaked")
 					}
 				}
@@ -152,10 +153,12 @@ func TestRegistrationOnlyChangesAfterFullSuccess(t *testing.T) {
 	}
 }
 
-func TestRunUsesExistingRootDeclaration(t *testing.T) {
+func TestRunUsesExistingOperatorDeclaration(t *testing.T) {
 	opts := setupRun(t)
-	team := config.Root()
-	team.Spec.Roles = []config.Role{{Name: "custom", Source: "kuketeams", Path: "roles/operator", Harness: "codex"}}
+	team := config.Operator()
+	team.Spec.Roles = []config.Role{
+		{Name: "custom", Source: "kuketeams", Path: "roles/operator", Harness: "codex", InitialPath: "/opt/custom"},
+	}
 	entry, err := config.Entry(team)
 	if err != nil {
 		t.Fatal(err)
@@ -164,7 +167,7 @@ func TestRunUsesExistingRootDeclaration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(opts.Root, "kuketeam.d", "root.yaml")
+	path := filepath.Join(opts.Root, "kuketeam.d", "kukeon.yaml")
 	if err = os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -174,15 +177,15 @@ func TestRunUsesExistingRootDeclaration(t *testing.T) {
 	if _, err = Run(t.Context(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(opts.Client.(*fakeClient).raw), "root-custom-codex") {
-		t.Fatal("authored root selection reset")
+	if !strings.Contains(string(opts.Client.(*fakeClient).raw), "kukeon-custom-codex") {
+		t.Fatal("authored operator selection reset")
 	}
 	after, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	accepted, err := config.DecodeEntry(bytes.NewReader(after))
-	if err != nil || accepted.Spec.Roles[0].Name != "custom" {
+	if err != nil || accepted.Spec.Roles[0].Name != "custom" || accepted.Spec.Roles[0].InitialPath != "/opt/custom" {
 		t.Fatal("entry did not retain declaration")
 	}
 }
@@ -190,7 +193,7 @@ func TestRunUsesExistingRootDeclaration(t *testing.T) {
 func TestInvalidExistingEntryFailsBeforeApplication(t *testing.T) {
 	for _, raw := range []string{"kind: Wrong\n", "apiVersion: kuketeams.io/v1\nkind: TeamEntry\nmetadata:\n  name: different\nspec: {}\n"} {
 		opts := setupRun(t)
-		path := filepath.Join(opts.Root, "kuketeam.d", "root.yaml")
+		path := filepath.Join(opts.Root, "kuketeam.d", "kukeon.yaml")
 		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -198,10 +201,34 @@ func TestInvalidExistingEntryFailsBeforeApplication(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := Run(t.Context(), opts); err == nil {
-			t.Fatal("accepted invalid root entry")
+			t.Fatal("accepted invalid operator entry")
 		}
 		if opts.Client.(*fakeClient).applies != 0 {
 			t.Fatal("applied before entry validation")
 		}
+	}
+}
+
+func TestLegacyRootRegistrationIsUntouched(t *testing.T) {
+	opts := setupRun(t)
+	legacy := filepath.Join(opts.Root, "kuketeam.d", "root.yaml")
+	if err := os.MkdirAll(filepath.Dir(legacy), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	original := []byte(
+		"# legacy declaration kept verbatim\napiVersion: kuketeams.io/v1\nkind: TeamEntry\nmetadata: {name: root}\nspec: {}\n",
+	)
+	if err := os.WriteFile(legacy, original, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Run(t.Context(), opts); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.ReadFile(legacy)
+	if err != nil || !bytes.Equal(after, original) {
+		t.Fatal("legacy registration changed")
+	}
+	if opts.Client.(*fakeClient).team != "kukeon" {
+		t.Fatal("applied legacy identity")
 	}
 }

@@ -1,12 +1,56 @@
-# Applying the root operator team
+# Applying the kukeon operator team
 
 `kuketeams init` preserves or bootstraps `~/.kuke/kuketeams.yaml`, fetches only
 sources used by selected role/harness definitions into temporary Git checkouts,
-and composes the root team's blueprints/configs. Git must be installed and able
+and composes the kukeon team's blueprints/configs. Git must be installed and able
 to read those sources without a terminal prompt. `branch`, `tag`, and `commit`
 selectors are fetched explicitly; no checkout in the current directory is used.
 Fetched definitions are removed after the invocation. Runtime repository URLs and
 clone destinations still come from the authored configuration.
+
+Fresh global configuration is minimal (discovered Git settings are added under
+`spec.git` when available):
+
+```yaml
+apiVersion: kuketeams.io/v1
+kind: TeamsConfig
+spec:
+  defaults: {}
+```
+
+The initial accepted declaration contains the operator selections directly:
+
+```yaml
+apiVersion: kuketeams.io/v1
+kind: TeamEntry
+metadata:
+  name: kukeon
+spec:
+  sources:
+    - name: kuketeams
+      url: github.com/eminwux/kuketeams
+      branch: main
+      clonePath: /home/user/kuketeams
+  roles:
+    - name: operator
+      source: kuketeams
+      path: roles/operator
+      initialPath: $HOME
+      needs:
+        image: [go]
+  harnesses:
+    - name: codex
+      source: kuketeams
+      path: harnesses/codex
+    - name: claude
+      source: kuketeams
+      path: harnesses/claude
+```
+
+This applies matching blueprints and CellConfigs named `kukeon-operator-codex`
+and `kukeon-operator-claude`. Init does not start them. The explicit entry keeps
+recomposition independent of global operator defaults. Configure reusable
+[global defaults](composition.md#reusable-defaults-after-init) separately.
 
 The command reaches kukeond with the public `kukeonv1` Unix JSON-RPC client.
 Endpoint precedence matches kuke:
@@ -25,7 +69,7 @@ Blueprints/configs target the `default` realm, space, and stack. Preflight check
 that the parent metadata exists, checks secret prerequisites, and stages a
 complete `0600` TeamEntry before mutating the daemon. Missing parent scopes must
 be provisioned with kuke. Init never creates, starts, restarts, or deletes cells.
-`ApplyDocumentsForTeam` receives the stable team name `root`, so reruns update
+`ApplyDocumentsForTeam` receives the stable team name `kukeon`, so reruns update
 that team's resources and prune obsolete team-owned blueprints/configs using the
 existing daemon contract. It does not prune credentials or running cells.
 
@@ -75,18 +119,31 @@ Secret rotation is not an intended init action; rotate explicitly with kuke.
 ## Registration and recovery
 
 The accepted authored declaration is saved atomically at
-`~/.kuke/kuketeam.d/root.yaml`. It retains explicit selections and omitted/empty
+`~/.kuke/kuketeam.d/kukeon.yaml`. It retains explicit selections and omitted/empty
 list semantics, with no resolved credentials or duplicated effective defaults.
 Later init runs read this declaration and resolve its inherited defaults from the
 current global configuration. An invalid existing registration fails preflight
 rather than resetting authored configuration.
+
+A pre-existing valid `kukeon.yaml` is authoritative: init reapplies its accepted
+selections rather than replacing them with the initial operator declaration.
+Invalid or mismatched registrations fail before application. Reserve `kukeon`
+for this operator; if that name already belongs to another declaration, preserve
+and inspect that declaration before running init. Init does not discover or
+migrate legacy registrations. A pre-existing `root.yaml`, its resources, and its
+state remain untouched; the new `kukeon` resources have distinct names and volumes.
+Moving credentials or retiring legacy resources is an explicit operator action.
+An unregistered daemon team named `kukeon` is not an ownership signal init can
+inspect: use a free identity or establish the intended accepted declaration
+before running init against that daemon. Team apply updates/prunes resources
+bearing that team identity under the existing daemon contract.
 
 Registration follows full blueprint/config success only. A secret failure, RPC
 failure, total resource failure, partial apply, prune failure, or incomplete
 response returns nonzero and leaves any prior TeamEntry unchanged. First-time
 failure creates no registration. Successful resources and created secrets are
 not rolled back: rerun init after fixing the prerequisite to converge the same
-root identity. A registration write failure after application is explicitly
+kukeon identity. A registration write failure after application is explicitly
 reported as such and can also be recovered by rerunning init. A previous entry
 records the last accepted declaration, not a claim that the latest failed update
 succeeded.

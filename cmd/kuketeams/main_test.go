@@ -115,7 +115,7 @@ func TestInitExecutable(t *testing.T) {
 		if err == nil || !strings.Contains(stderr.String(), want) || stdout.Len() != 0 {
 			t.Fatalf("invalid=%v error=%v stdout=%q stderr=%q", invalid, err, &stdout, &stderr)
 		}
-		if _, err = os.Stat(filepath.Join(home, ".kuke", "kuketeam.d", "root.yaml")); !os.IsNotExist(err) {
+		if _, err = os.Stat(filepath.Join(home, ".kuke", "kuketeam.d", "kukeon.yaml")); !os.IsNotExist(err) {
 			t.Fatal("registered before successful application")
 		}
 	}

@@ -9,14 +9,14 @@ from external repositories.
 
 ## Status
 
-The configuration library, structural composition, CLI help/version, and root-team
+The configuration library, structural composition, CLI help/version, and kukeon-team
 application through `init` are available. Further delivery steps are tracked
 in [the implementation epic](https://github.com/eminwux/kuketeams/issues/1).
 
 The planned workflow is:
 
 - `kuketeams init`: bootstrap operator configuration under `~/.kuke` and compose
-  the initial root team.
+  the initial kukeon team.
 - `kuketeams apply -f kuketeam.yaml`: apply a `Team` declaration and register it
   as a `TeamEntry`.
 - `kuketeams update`: regenerate and apply registered teams' blueprints and configs.
@@ -148,14 +148,16 @@ kukeond. The `default` realm, space, and stack must already exist:
 ./bin/kuketeams init
 ```
 
-This creates `~/.kuke/kuketeams.yaml` with the kuketeams source on `main`, the
-`operator` role (requesting the `go` image), and the default `codex` harness. Edit
-this file to customize configuration. Init fetches the selected role/harness
-definitions at their declared revisions, composes root-owned blueprints/configs,
-and applies them through kukeond. It registers the accepted declaration at
-`~/.kuke/kuketeam.d/root.yaml` only after every resource succeeds. Cells remain
-under kukeon's explicit lifecycle commands. `init --build` is rejected until
-build support is implemented.
+This creates `~/.kuke/kuketeams.yaml` with empty defaults and any discovered
+Git identity/signing settings. Init declares the `kuketeams` source on `main`,
+the `operator` role (requesting `go`, starting in the in-cell `$HOME`), and both
+Codex and Claude in `~/.kuke/kuketeam.d/kukeon.yaml`. It fetches the selected
+definitions and applies `kukeon-operator-codex` and `kukeon-operator-claude`
+blueprints/configs through kukeond. Registration is published only after every
+resource succeeds. No cells are started. Edit the accepted entry to customize
+the operator; configure global defaults separately for other teams. See
+[initialization](docs/initialization.md) for examples and existing-registration
+handling. `init --build` is rejected until build support is implemented.
 
 The endpoint follows kuke's precedence: `init --host unix:///path/to/kukeond.sock`,
 `KUKEON_HOST`, `ClientConfiguration.spec.host` in `~/.kuke/kuke.yaml`, then
@@ -236,7 +238,7 @@ See [the global configuration fixture](testdata/config/global.yaml) for Git
 identities/signing, named sources, roles, and harnesses. An omitted Git block and
 empty defaults are valid. Selection lists preserve omission (`nil`, available for
 later inheritance) versus explicit empty lists (non-nil, select none) on YAML
-round trips. This package does not implement inheritance or composition yet.
+round trips. `config.Resolve` applies inheritance; `pkg/compose` renders the effective selections.
 
 The reader accepts exactly one `kuketeams.io/v1` / `TeamsConfig` YAML document.
 It rejects unknown fields, duplicate keys, incorrect types (including null fields),
@@ -250,8 +252,12 @@ one nonblank `branch`, `tag`, or `commit`. Selectors are literal: `branch: v1.4.
 selects a branch, not a tag. Definition paths use repository-relative slash syntax
 and must stay within the source root; validation checks syntax and references
 without accessing sources or signing-key files. An explicit role harness selects a
-declared harness; otherwise at least one harness must be marked `default: true`.
-Multiple default harnesses are supported.
+declared harness. Global defaults allow at most one `default: true` harness;
+roles without an explicit selection use it. Explicit Team/TeamEntry harness
+lists select all listed harnesses and cannot contain `default`. Role-level
+`harness` still narrows the selection. `roles[].initialPath` selects an absolute
+in-cell startup directory or `$HOME[/subdirectory]`; omission uses the cell home.
+See [composition](docs/composition.md) for inheritance and startup precedence.
 
 ## Pre-commit checks
 

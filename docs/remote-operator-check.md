@@ -1,8 +1,8 @@
 # Checking the published Codex operator
 
 This opt-in check exercises the real `kuketeams init` command followed by an
-explicit `kuke run --from-config root-operator-codex`. Initialization applies
-configuration and registers the root team; it does not start cells. A passing
+explicit `kuke run --from-config kukeon-operator-codex`. Initialization applies
+configuration and registers the kukeon team; it does not start cells. A passing
 check requires a live work container, the published image's digest, and a
 completed authenticated Codex turn with command-generated installation evidence.
 
@@ -31,7 +31,7 @@ completed authenticated Codex turn with command-generated installation evidence.
   set `KUKETEAMS_REMOTE_REVISION` when testing unpushed driver changes against an
   already published source revision. Use matching operator/harness assets: their
   expected policy/hook hashes come from this checkout.
-- A dedicated, pre-authenticated `root-operator-codex` Volume at
+- A dedicated, pre-authenticated `kukeon-operator-codex` Volume at
   `default/default/default`. The check does not log in, obtain credentials, copy
   another team's credentials, rotate secrets, or delete this volume. The base
   operator's Codex role requires **no secret bindings**, including no `gh-token`
@@ -39,12 +39,12 @@ completed authenticated Codex turn with command-generated installation evidence.
   in its Codex state. An absent volume fails before launch; an empty/expired
   login cannot produce the required authenticated turn and fails the check.
 
-Prefer a disposable daemon. A shared daemon is supported only when the `root`
+Prefer a disposable daemon. A shared daemon is supported only when the `kukeon`
 team identity is unused and exclusively reserved for this check. Before writing,
-its guard lists blueprints/configs across **all realms**, rejecting any root-team
-label or conflicting operator resource name: team application can prune root
-resources across realms. Run only one root check at a time and do not initialize
-another root team concurrently. Other team names are left alone. The driver uses
+its guard lists blueprints/configs across **all realms**, rejecting any kukeon-team
+label or conflicting operator resource name: team application can prune kukeon
+resources across realms. Run only one kukeon check at a time and do not initialize
+another kukeon team concurrently. Other team names are left alone. The driver uses
 a temporary client HOME, explicit host/client configuration and runtime scope,
 public HTTPS sources, and no ambient Git configuration or credential env vars.
 
@@ -74,7 +74,7 @@ spec:
         - CODEX_HOME=/home/user/.codex
       volumes:
         - kind: volume
-          source: root-operator-codex
+          source: kukeon-operator-codex
           target: /home/user/.codex
           ensure: true
 ```
@@ -111,8 +111,10 @@ live test is not successful remote-image verification.
 
 The driver:
 
-1. Runs `kuketeams init` in an isolated client HOME with its source commit pinned.
-   Reads back the operator blueprint/config and root TeamEntry, checks repository
+1. Runs `kuketeams init` in an isolated client HOME with an explicit Codex-only
+   `kukeon` entry and its source commit pinned. Fresh init normally selects both
+   Codex and Claude; this check intentionally verifies Codex alone.
+   Reads back the operator blueprint/config and kukeon TeamEntry, checks repository
    pinning and absence of base-role secret bindings, and compares runtime cell
    identities/recipes and secret metadata before and after initialization.
 2. Fetches and hashes the catalog image's published manifest. Once authentication
@@ -120,7 +122,7 @@ The driver:
    that digest with a single `kuke apply -f`. This test-only pin prevents a stale
    or locally retagged image from satisfying the check. It does not change the
    production catalog or add image-pinning behavior to `init`.
-3. Runs `kuke run --from-config root-operator-codex --name operator-check-<unique>
+3. Runs `kuke run --from-config kukeon-operator-codex --name operator-check-<unique>
 --realm default --space default --stack default --env PROMPT=<probe> --detach`.
    The supported `PROMPT` override selects the existing `codex exec --json`
    startup path, with workspace-write sandbox and approval never for the batch
@@ -149,7 +151,7 @@ the `failure` field instead of interpreting a partial report as a pass.
 ## Cleanup and recovery
 
 On success or ordinary failure, cleanup kills only the unique test cell and
-deletes only `root-operator-codex` config/blueprint documents bearing its root
+deletes only `kukeon-operator-codex` config/blueprint documents bearing its kukeon
 team label. It removes its temporary HOME/registration. It never deletes or
 rotates secrets, deletes state volumes, cascades a realm/space/stack, purges
 images, or touches unrelated teams and persistent data. The pre-authenticated

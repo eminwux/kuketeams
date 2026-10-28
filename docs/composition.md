@@ -11,18 +11,22 @@ cell. CLI `init` uses this output for [daemon application and registration](init
 `harnesses`. An omitted list inherits the corresponding global default. An
 explicit list replaces it; `[]` selects none. References are checked against the
 effective lists. Each source has exactly one of `branch`, `tag`, or `commit`.
-Each role selects its explicit `harness`, or all declared harnesses marked
-`default: true`. Unselected definitions are not loaded or rendered.
+Each role selects its explicit `harness`. Otherwise it selects the single global
+harness marked `default: true` when inheriting harnesses, or all harnesses in an
+explicit Team/TeamEntry harness list. Only TeamsConfig defaults support `default`;
+multiple defaults fail validation. Explicit team harness declarations omit the
+flag (even `default: false` is rejected). Unselected definitions are not loaded
+or rendered.
 
 ```yaml
 apiVersion: kuketeams.io/v1
 kind: Team
 metadata:
-  name: root
+  name: example
 # All selections omitted: inherit the operator's defaults.
 ```
 
-`config.Root()` returns this declaration. `config.Entry(team)` creates a
+`config.Operator()` returns the explicit initial `kukeon` declaration. `config.Entry(team)` creates a
 `TeamEntry` with the same `metadata` and `spec`, changing only `kind` to
 `TeamEntry`. The declaration is copied; effective defaults are not persisted.
 `config.DecodeTeam` / `DecodeEntry` read strict single-document YAML;
@@ -48,12 +52,12 @@ still uses `ProjectTeam` and a locator-only `TeamEntry`; neither has a resolved
 image field. These standalone models implement epic #1's greenfield contract,
 without retaining that input model or inventing redundant image state.
 
-## Runtime repository and parameter bindings
+## Reusable defaults after init
 
-A source is the single declaration of its URL and branch/tag/commit. Optional
-`sources[].clonePath` requests a runtime clone at an absolute in-cell destination;
-omission requests no runtime clone. Definition materialization on the host does
-not itself request cloning inside a workload. Bootstrap opts the role source in:
+After init, the user can edit `~/.kuke/kuketeams.yaml` to declare reusable
+sources, roles, and harnesses. This is user-authored configuration, not bootstrap
+output. Only Codex is the default; dev explicitly selects Claude and pm uses
+Codex:
 
 ```yaml
 apiVersion: kuketeams.io/v1
@@ -64,19 +68,65 @@ spec:
       - name: kuketeams
         url: github.com/eminwux/kuketeams
         branch: main
-        clonePath: /home/user/kuketeams
+      - name: agents
+        url: github.com/eminwux/agents
+        branch: main
     roles:
-      - name: operator
-        source: kuketeams
-        path: roles/operator
-        needs:
-          image: [go]
+      - name: dev
+        source: agents
+        path: dev
+        initialPath: /home/user/work
+        harness: claude
+      - name: pm
+        source: agents
+        path: pm
+        initialPath: $HOME
     harnesses:
       - name: codex
         source: kuketeams
         path: harnesses/codex
         default: true
+      - name: claude
+        source: kuketeams
+        path: harnesses/claude
 ```
+
+Check external role paths, runtime `clonePath` requirements, image capabilities,
+and secret prerequisites against the selected source revision before use. This
+selection example does not supply every role-specific prerequisite.
+
+## Starting directory
+
+`initialPath` is accepted on role selections in global defaults, Team, and
+TeamEntry. Inherited roles retain their paths. An explicit roles list replaces
+the entire global list, so omitting `initialPath` on a replacement role uses the
+home fallback rather than borrowing a path from the same-named global role.
+
+Supported values are clean absolute Unix paths (including `/`), `$HOME`, and
+`$HOME/subdirectory`. Path components use letters, digits, `_`, `.`, and `-`.
+Relative paths, `~`, `${HOME}`, other variables, shell expressions, whitespace,
+empty strings, and `.`/`..` traversal components are rejected with a field error.
+Omit the field to use the in-cell harness user's `$HOME`. The leading `$HOME`
+token is expanded by the cell shell, never by init or the composition host.
+Directories must already exist; failed `cd` stops startup before the harness runs.
+
+This rule applies consistently to Codex, Claude, and OpenCode. `initialPath`
+controls startup even when a role declares the `project` repository slot; an
+omitted value uses home rather than the previous project/role-checkout fallback.
+To retain project-directory startup, set `initialPath` to the project's absolute
+in-cell clone destination. Role `path` continues to locate definition assets;
+materialization runs against the role source before launch and installs user
+instructions and skills in native harness home directories. Starting elsewhere
+does not move or disable those assets.
+
+## Runtime repository and parameter bindings
+
+A source is the single declaration of its URL and branch/tag/commit. Optional
+`sources[].clonePath` requests a runtime clone at an absolute in-cell destination;
+omission requests no runtime clone. Definition materialization on the host does
+not itself request cloning inside a workload. The initial `kukeon` TeamEntry
+opts its role source in with `clonePath: /home/user/kuketeams`; see the complete
+[initial declaration](initialization.md).
 
 Existing configurations are preserved by bootstrap. Add `clonePath` to required
 runtime sources in older configurations before composing. Source names used for
@@ -90,9 +140,9 @@ an effective source with `clonePath`. Other effective sources with `clonePath`
 also request clones; sources without it contribute no runtime repository slot.
 Team source overrides replace the whole global list, including clone destinations
 and revisions, and authored `TeamEntry` round trips preserve these declarations.
-No project URL is inferred from the team name or definition source. Only a role
-declaring the `project` repo slot gets a project launch directory; otherwise the
-working directory is the selected role tree.
+No project URL is inferred from the team name or definition source. Startup
+directories are selected independently through `roles[].initialPath`, as
+described in [Starting directory](#starting-directory).
 
 Destinations are bound in blueprint repository slots; URLs and revisions are
 bound through `CellConfig.spec.repos`. Source branches map to `branch`, and tags
@@ -172,10 +222,10 @@ Specialized-role onboarding and remediation remain epic step 5.
 ## Library handoff and validation limits
 
 ```go
-result, err := compose.Compose(cfg, config.Root(), compose.Options{
+result, err := compose.Compose(cfg, config.Operator(), compose.Options{
     Sources: map[string]fs.FS{"kuketeams": os.DirFS(checkout)},
     Scope:   compose.Scope{Realm: "default", Space: "default", Stack: "default"},
-    TeamDir: "/operator/.kuke/teams/root", // required by Claude's seed declaration
+    TeamDir: "/operator/.kuke/teams/kukeon", // required by Claude's seed declaration
 })
 ```
 
@@ -195,7 +245,7 @@ silently rendering `<no value>`.
   unambiguous even with repeated hyphens. Blueprint/config names, blueprint
   references, and cell prefixes use this identity; `kukeon.io/team` labels retain
   the authored team name. Defaults are realm/space/stack `default`; the initial
-  config identity remains `root-operator-codex`.
+  config identities are `kukeon-operator-codex` and `kukeon-operator-claude`.
 - `Image`: the resolved catalog entry, suitable for a later build/apply consumer.
 - `Secrets`: required identifier, container, explicit destination, runtime
   name/scope, and optional creation-source declaration. No credential bytes.

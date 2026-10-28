@@ -18,6 +18,7 @@ package config
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"slices"
 )
@@ -27,10 +28,32 @@ const (
 	KindTeamEntry = "TeamEntry"
 )
 
-// Root returns the initial authored declaration. Selections remain omitted so
-// later updates inherit the operator's current defaults.
+// Root returns a legacy root declaration inheriting global defaults.
+// Init uses Operator instead; this helper does not migrate registrations.
 func Root() *Team {
 	return &Team{APIVersion: APIVersion, Kind: KindTeam, Metadata: Metadata{Name: "root"}}
+}
+
+// Operator returns the self-contained initial operator declaration.
+func Operator() *Team {
+	return &Team{APIVersion: APIVersion, Kind: KindTeam, Metadata: Metadata{Name: "kukeon"}, Spec: Defaults{
+		Sources: []Source{
+			{Name: "kuketeams", URL: "github.com/eminwux/kuketeams", Branch: "main", ClonePath: "/home/user/kuketeams"},
+		},
+		Roles: []Role{
+			{
+				Name:        "operator",
+				Source:      "kuketeams",
+				Path:        "roles/operator",
+				InitialPath: "$HOME",
+				Needs:       &Needs{Image: []string{"go"}},
+			},
+		},
+		Harnesses: []Harness{
+			{Name: "codex", Source: "kuketeams", Path: "harnesses/codex"},
+			{Name: "claude", Source: "kuketeams", Path: "harnesses/claude"},
+		},
+	}}
 }
 
 // Resolve applies whole-list inheritance, validates effective references, and
@@ -41,6 +64,14 @@ func Resolve(cfg *TeamsConfig, team *Team) (Defaults, error) {
 	}
 	if team == nil || team.APIVersion != APIVersion || team.Kind != KindTeam || !ValidName(team.Metadata.Name) {
 		return Defaults{}, errors.New("team: require kuketeams.io/v1 Team and a valid metadata.name")
+	}
+	for i, h := range team.Spec.Harnesses {
+		if h.Default {
+			return Defaults{}, fmt.Errorf(
+				"spec.harnesses[%d].default: supported only in TeamsConfig defaults; omit default to select this harness",
+				i,
+			)
+		}
 	}
 	d := team.Spec
 	if d.Sources == nil {
@@ -65,7 +96,7 @@ func Resolve(cfg *TeamsConfig, team *Team) (Defaults, error) {
 		}
 		d.Sources = append(slices.Clone(d.Sources), *team.ProjectSource)
 	}
-	return d, validateDefaults(&d)
+	return d, validateSelections(&d, team.Spec.Harnesses != nil)
 }
 
 // DecodeTeamDeclaration decodes a strict Team document before caller-supplied

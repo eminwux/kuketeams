@@ -69,27 +69,6 @@ func TestFirstRun(t *testing.T) {
 				Committer:  &config.Identity{Name: "Operator", Email: "operator@example.test"},
 				SigningKey: "~/.ssh/operator.pub", Sign: []string{"commits", "tags"}, AllowedSigners: "~/allowed_signers",
 			},
-			Defaults: config.Defaults{
-				Sources: []config.Source{
-					{
-						Name:      "kuketeams",
-						URL:       "github.com/eminwux/kuketeams",
-						Branch:    "main",
-						ClonePath: "/home/user/kuketeams",
-					},
-				},
-				Roles: []config.Role{
-					{
-						Name:   "operator",
-						Source: "kuketeams",
-						Path:   "roles/operator",
-						Needs:  &config.Needs{Image: []string{"go"}},
-					},
-				},
-				Harnesses: []config.Harness{
-					{Name: "codex", Source: "kuketeams", Path: "harnesses/codex", Default: true},
-				},
-			},
 		},
 	}
 	if !reflect.DeepEqual(result.Config, want) {
@@ -453,5 +432,20 @@ func TestCancellationDuringDiscovery(t *testing.T) {
 	}
 	if _, statErr := os.Stat(root); !errors.Is(statErr, os.ErrNotExist) {
 		t.Fatalf("published after cancellation: %v", statErr)
+	}
+}
+
+func TestFreshConfigWithoutGitIsMinimal(t *testing.T) {
+	result, err := Run(t.Context(), Options{Root: t.TempDir(), Git: &fakeGit{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(result.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "apiVersion: kuketeams.io/v1\nkind: TeamsConfig\nspec:\n  defaults: {}\n"
+	if string(raw) != want {
+		t.Fatalf("fresh configuration:\n%s", raw)
 	}
 }

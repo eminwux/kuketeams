@@ -212,7 +212,11 @@ func TestValidate(t *testing.T) {
 			c.Spec.Defaults.Harnesses[0].Default = false
 			c.Spec.Defaults.Roles[0].Harness = "claude"
 		}, ""},
-		{"multiple defaults", func(c *config.TeamsConfig) { c.Spec.Defaults.Harnesses[1].Default = true }, ""},
+		{
+			"multiple defaults",
+			func(c *config.TeamsConfig) { c.Spec.Defaults.Harnesses[1].Default = true },
+			"at most one",
+		},
 		{
 			"blank image",
 			func(c *config.TeamsConfig) { c.Spec.Defaults.Roles[0].Needs.Image = []string{"go", " "} },

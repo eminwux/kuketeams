@@ -48,7 +48,7 @@ import (
 //go:embed probe.py
 var probeScript string
 
-const resource = "root-operator-codex"
+const resource = "kukeon-operator-codex"
 
 type executionReport struct {
 	StartedAt      string       `json:"started_at"`
@@ -80,7 +80,7 @@ type remoteDriver struct {
 	pinned                               string
 }
 
-// TestRemoteOperator explicitly reserves an unused root identity, checks init,
+// TestRemoteOperator explicitly reserves an unused kukeon identity, checks init,
 // and then requires a published image and authenticated operator evidence.
 func TestRemoteOperator(t *testing.T) {
 	host := os.Getenv("KUKETEAMS_REMOTE_HOST")
@@ -188,14 +188,14 @@ func (d *remoteDriver) prepare() {
 }
 
 func (d *remoteDriver) reserve() {
-	// Team pruning walks the whole daemon, so reserve root globally.
+	// Team pruning walks the whole daemon, so reserve kukeon globally.
 	blueprints, err := d.client.ListBlueprints(d.ctx, "", "", "")
 	if err != nil {
 		d.fail("unmet prerequisite: cannot inspect blueprint scope")
 	}
 	for _, bp := range blueprints {
 		if reserved(bp.Metadata.Name, bp.Metadata.Labels) {
-			d.fail("unmet prerequisite: root blueprint/team identity is already in use")
+			d.fail("unmet prerequisite: kukeon blueprint/team identity is already in use")
 		}
 	}
 	configs, err := d.client.ListConfigs(d.ctx, "", "", "")
@@ -204,7 +204,7 @@ func (d *remoteDriver) reserve() {
 	}
 	for _, cc := range configs {
 		if reserved(cc.Metadata.Name, cc.Metadata.Labels) {
-			d.fail("unmet prerequisite: root config/team identity is already in use")
+			d.fail("unmet prerequisite: kukeon config/team identity is already in use")
 		}
 	}
 	d.cells, err = d.client.ListCells(d.ctx, "", "", "")
@@ -212,8 +212,8 @@ func (d *remoteDriver) reserve() {
 		d.fail("unmet prerequisite: cannot snapshot runtime cells")
 	}
 	for _, cell := range d.cells {
-		if cell.Metadata.Labels[api.LabelTeam] == "root" {
-			d.fail("unmet prerequisite: an existing root-team cell may share the test state")
+		if cell.Metadata.Labels[api.LabelTeam] == "kukeon" {
+			d.fail("unmet prerequisite: an existing kukeon-team cell may share the test state")
 		}
 	}
 	d.secrets, err = d.client.ListSecrets(d.ctx, "", "", "", "")
@@ -245,7 +245,7 @@ func (d *remoteDriver) cleanupDocuments() {
 		return
 	}
 	for _, cc := range ccs {
-		if cc.Metadata.Name != resource || cc.Metadata.Labels[api.LabelTeam] != "root" {
+		if cc.Metadata.Name != resource || cc.Metadata.Labels[api.LabelTeam] != "kukeon" {
 			continue
 		}
 		if _, err = d.client.DeleteConfig(ctx, configLookup()); err != nil {
@@ -260,7 +260,7 @@ func (d *remoteDriver) cleanupDocuments() {
 		return
 	}
 	for _, bp := range bps {
-		if bp.Metadata.Name != resource || bp.Metadata.Labels[api.LabelTeam] != "root" {
+		if bp.Metadata.Name != resource || bp.Metadata.Labels[api.LabelTeam] != "kukeon" {
 			continue
 		}
 		if _, err = d.client.DeleteBlueprint(ctx, blueprintLookup()); err != nil {
@@ -299,7 +299,19 @@ func (d *remoteDriver) initialize() {
 	if err := os.MkdirAll(filepath.Join(d.home, ".kuke"), 0o700); err != nil {
 		d.fail("prepare isolated home")
 	}
+	declaration := config.Operator()
+	declaration.Spec = cfg.Spec.Defaults
+	declaration.Spec.Harnesses[0].Default = false
+	cfg.Spec.Defaults = config.Defaults{}
 	d.writeYAML(filepath.Join(d.home, ".kuke", "kuketeams.yaml"), cfg)
+	preparedEntry, entryErr := config.Entry(declaration)
+	if entryErr != nil {
+		d.fail("prepare explicit operator declaration")
+	}
+	if err := os.MkdirAll(filepath.Join(d.home, ".kuke", "kuketeam.d"), 0o700); err != nil {
+		d.fail("prepare registration directory")
+	}
+	d.writeYAML(filepath.Join(d.home, ".kuke", "kuketeam.d", "kukeon.yaml"), preparedEntry)
 	d.clientPath = filepath.Join(d.home, "client.yaml")
 	d.writeYAML(
 		d.clientPath,
@@ -316,22 +328,22 @@ func (d *remoteDriver) initialize() {
 	if _, err := d.run(d.binary, "init", "--host", d.host, "--configuration", d.clientPath); err != nil {
 		d.fail("kuketeams init failed; check scope prerequisites and published source accessibility")
 	}
-	entryRaw, err := os.ReadFile(filepath.Join(d.home, ".kuke", "kuketeam.d", "root.yaml"))
+	entryRaw, err := os.ReadFile(filepath.Join(d.home, ".kuke", "kuketeam.d", "kukeon.yaml"))
 	if err != nil {
-		d.fail("root registration is missing")
+		d.fail("kukeon registration is missing")
 	}
 	entry, err := config.DecodeEntry(bytes.NewReader(entryRaw))
-	if err != nil || entry.Metadata.Name != "root" {
-		d.fail("root registration is invalid")
+	if err != nil || entry.Metadata.Name != "kukeon" {
+		d.fail("kukeon registration is invalid")
 	}
 	bp, err := d.client.GetBlueprint(d.ctx, blueprintLookup())
-	if err != nil || !bp.MetadataExists || bp.Blueprint.Metadata.Labels[api.LabelTeam] != "root" {
-		d.fail("root blueprint readback failed")
+	if err != nil || !bp.MetadataExists || bp.Blueprint.Metadata.Labels[api.LabelTeam] != "kukeon" {
+		d.fail("kukeon blueprint readback failed")
 	}
 	cc, err := d.client.GetConfig(d.ctx, configLookup())
-	if err != nil || !cc.MetadataExists || cc.Config.Metadata.Labels[api.LabelTeam] != "root" ||
+	if err != nil || !cc.MetadataExists || cc.Config.Metadata.Labels[api.LabelTeam] != "kukeon" ||
 		cc.Config.Spec.Blueprint.Name != resource {
-		d.fail("root config readback failed")
+		d.fail("kukeon config readback failed")
 	}
 	containers := bp.Blueprint.Spec.Cell.Containers
 	if len(containers) != 1 || containers[0].ID != "work" || len(containers[0].Secrets) != 0 ||
@@ -358,7 +370,7 @@ func (d *remoteDriver) verifyInitIsolation() {
 	d.report.Checks = append(
 		d.report.Checks,
 		"init applied/read back operator blueprint and config",
-		"root TeamEntry decoded",
+		"kukeon TeamEntry decoded",
 		"base Codex requires no secret bindings; secret metadata unchanged",
 		"runtime cell identities and recipes unchanged by init",
 	)
@@ -378,7 +390,9 @@ func (d *remoteDriver) checkImageAndAuth() {
 		},
 	)
 	if err != nil || !volume.MetadataExists {
-		d.fail("unmet prerequisite: pre-authenticated root-operator-codex state volume is missing; see the setup guide")
+		d.fail(
+			"unmet prerequisite: pre-authenticated kukeon-operator-codex state volume is missing; see the setup guide",
+		)
 	}
 	named, err := reference.ParseNormalizedNamed(d.report.Image)
 	if err != nil {
@@ -427,7 +441,7 @@ func (d *remoteDriver) launch() {
 	}
 	d.report.Commands = append(
 		d.report.Commands,
-		"kuke run --from-config root-operator-codex --realm default --space default --stack default --name "+name+" --env PROMPT=<embedded read-only probe> --detach",
+		"kuke run --from-config kukeon-operator-codex --realm default --space default --stack default --name "+name+" --env PROMPT=<embedded read-only probe> --detach",
 	)
 	if _, err := d.run("kuke", args...); err != nil {
 		d.fail("explicit kuke run failed; check image pull, state volume, and runtime prerequisites")
@@ -447,7 +461,7 @@ func (d *remoteDriver) cleanupCell() {
 		if cell.Metadata.Name != d.report.Cell {
 			continue
 		}
-		if cell.Metadata.Labels[api.LabelTeam] != "root" {
+		if cell.Metadata.Labels[api.LabelTeam] != "kukeon" {
 			d.t.Error("cleanup: test cell ownership mismatch; left untouched")
 			continue
 		}
@@ -542,7 +556,7 @@ func (d *remoteDriver) acceptEvidence(output []byte, running bool) bool {
 }
 
 func reserved(name string, labels map[string]string) bool {
-	return name == resource || labels[api.LabelTeam] == "root"
+	return name == resource || labels[api.LabelTeam] == "kukeon"
 }
 
 func cellRecipes(cells []api.CellDoc) map[string]api.CellSpec {

@@ -14,7 +14,7 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
-// Package initialize applies the root team's configuration without managing cells.
+// Package initialize applies the operator team's configuration without managing cells.
 package initialize
 
 import (
@@ -35,8 +35,9 @@ import (
 )
 
 const (
-	rootName         = "root"
-	resourcesPerPair = 2 // One blueprint and one config.
+	operatorName     = "kukeon"
+	rootName         = "root" // Reserved legacy identity; never migrated by init.
+	resourcesPerPair = 2      // One blueprint and one config.
 )
 
 // Options supplies operator paths and optional test/embedding dependencies.
@@ -61,7 +62,7 @@ func Run(ctx context.Context, opts Options) (Result, error) {
 	if err != nil {
 		return result, err
 	}
-	entryPath := filepath.Join(opts.Root, "kuketeam.d", "root.yaml")
+	entryPath := filepath.Join(opts.Root, "kuketeam.d", "kukeon.yaml")
 	team, err := readTeam(entryPath)
 	if err != nil {
 		return result, err
@@ -149,7 +150,10 @@ func runTeam(
 }
 
 func readTeam(path string) (*config.Team, error) {
-	return readNamedTeam(path, rootName)
+	if _, err := os.Stat(path); errors.Is(err, os.ErrNotExist) {
+		return config.Operator(), nil
+	}
+	return readNamedTeam(path, operatorName)
 }
 
 func readNamedTeam(path, name string) (*config.Team, error) {

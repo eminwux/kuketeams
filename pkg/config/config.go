@@ -88,11 +88,12 @@ type Source struct {
 }
 
 type Role struct {
-	Name    string `yaml:"name"`
-	Source  string `yaml:"source"`
-	Path    string `yaml:"path"`
-	Needs   *Needs `yaml:"needs,omitempty"`
-	Harness string `yaml:"harness,omitempty"`
+	Name        string `yaml:"name"`
+	Source      string `yaml:"source"`
+	Path        string `yaml:"path"`
+	InitialPath string `yaml:"initialPath,omitempty"`
+	Needs       *Needs `yaml:"needs,omitempty"`
+	Harness     string `yaml:"harness,omitempty"`
 }
 
 type Needs struct {

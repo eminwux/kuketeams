@@ -60,7 +60,7 @@ func TestCatalogGeneration(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, registry := range []string{"ghcr.io/eminwux/kuketeams", ""} {
-		c, genErr := harness.Generate(h, registry, "v0.2.0")
+		c, genErr := harness.Generate(h, registry, "v0.2.1")
 		if genErr != nil {
 			t.Fatal(genErr)
 		}
@@ -96,9 +96,9 @@ func TestCatalogRejectsWrongShapeAndIdentity(t *testing.T) {
 		{"kind", "kind: HarnessImageCatalog", "kind: ImageCatalog"},
 		{"identity", "name: codex", "name: claude"},
 		{"obsolete-build", "  images:", "  build: {}\n  images:"},
-		{"invalid-ref", "ghcr.io/eminwux/kuketeams/codex:v0.2.0", "bad::ref"},
+		{"invalid-ref", "ghcr.io/eminwux/kuketeams/codex:v0.2.1", "bad::ref"},
 		{"missing-capability", "        - codex\n", "        - wrong\n"},
-		{"duplicate-image", "ghcr.io/eminwux/kuketeams/codex-root:v0.2.0", "ghcr.io/eminwux/kuketeams/codex:v0.2.0"},
+		{"duplicate-image", "ghcr.io/eminwux/kuketeams/codex-root:v0.2.1", "ghcr.io/eminwux/kuketeams/codex:v0.2.1"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			raw := strings.Replace(string(original), test.old, test.value, 1)
@@ -127,7 +127,7 @@ func assertGenerated(t *testing.T, h *harness.Harness, c *harness.ImageCatalog, 
 		if registry != "" {
 			prefix = registry + "/"
 		}
-		if image.Image != prefix+h.Spec.Images[i].Name+":v0.2.0" ||
+		if image.Image != prefix+h.Spec.Images[i].Name+":v0.2.1" ||
 			!reflect.DeepEqual(image.Capabilities, h.Spec.Images[i].Capabilities) {
 			t.Fatalf("generation: %+v", image)
 		}

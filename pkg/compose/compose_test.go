@@ -376,7 +376,7 @@ func assertRootResources(t *testing.T, result *compose.Result) {
 		p.Blueprint.Spec.Prefix != p.Config.Metadata.Name || p.Config.Spec.Blueprint.Name != p.Config.Metadata.Name {
 		t.Fatal("unstable identity")
 	}
-	if p.Image.Image != "ghcr.io/eminwux/kuketeams/codex:v0.2.0" {
+	if p.Image.Image != "ghcr.io/eminwux/kuketeams/codex:v0.2.1" {
 		t.Fatalf("image = %+v", p.Image)
 	}
 	c := p.Blueprint.Spec.Cell.Containers[0]
@@ -894,7 +894,7 @@ func TestCatalogFollowsSelectedSourceAndPath(t *testing.T) {
 	catalogPath := "nested/runtime/images.yaml"
 	external[catalogPath].Data = bytes.ReplaceAll(
 		external[catalogPath].Data,
-		[]byte("ghcr.io/eminwux/kuketeams/codex:v0.2.0"),
+		[]byte("ghcr.io/eminwux/kuketeams/codex:v0.2.1"),
 		[]byte("registry.test/custom/codex:v9"),
 	)
 	cfg.Spec.Defaults.Sources = append(

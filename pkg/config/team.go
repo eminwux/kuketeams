@@ -68,15 +68,28 @@ func Resolve(cfg *TeamsConfig, team *Team) (Defaults, error) {
 	return d, validateDefaults(&d)
 }
 
-func DecodeTeam(r io.Reader) (*Team, error) {
+// DecodeTeamDeclaration decodes a strict Team document before caller-supplied
+// naming defaults/overrides. Resolve validates its final name and selections.
+func DecodeTeamDeclaration(r io.Reader) (*Team, error) {
 	var team Team
 	if err := decodeDocument(r, &team); err != nil {
 		return nil, err
 	}
-	if team.APIVersion != APIVersion || team.Kind != KindTeam || !ValidName(team.Metadata.Name) {
-		return nil, errors.New("team: require kuketeams.io/v1 Team and a valid metadata.name")
+	if team.APIVersion != APIVersion || team.Kind != KindTeam {
+		return nil, errors.New("team: require kuketeams.io/v1 Team")
 	}
 	return &team, nil
+}
+
+func DecodeTeam(r io.Reader) (*Team, error) {
+	team, err := DecodeTeamDeclaration(r)
+	if err != nil {
+		return nil, err
+	}
+	if !ValidName(team.Metadata.Name) {
+		return nil, errors.New("team: require a valid metadata.name")
+	}
+	return team, nil
 }
 
 // Entry copies the authored declaration without materializing inherited fields.

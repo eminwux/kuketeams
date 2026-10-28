@@ -193,6 +193,7 @@ override is provided.
 
 ```sh
 kuketeams add kukeon --source git@github.com:eminwux/kukeon.git
+kuketeams add . --name my-team
 ```
 
 Add resolves global defaults, validates the remote and revision, applies named

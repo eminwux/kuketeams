@@ -28,31 +28,55 @@ import (
 	"github.com/eminwux/kuketeams/pkg/config"
 )
 
-// AddOptions names a remote project and at most one explicit revision selector.
+// AddOptions names a remote project or a local Directory and optional overrides.
 // Options supplies the same connection and application dependencies as init.
 type AddOptions struct {
 	Options
 
 	Name, Source, Branch, Tag, Commit string
+	Directory                         string
 }
 
 // Add assembles an inheriting declaration without bootstrapping/resetting global
-// configuration. Every remote is validated before Git; project access is checked
+// configuration. Every remote is validated before transport; project access is checked
 // even when it contributes no definitions.
 func Add(ctx context.Context, opts AddOptions) (Result, error) {
-	if !config.ValidName(opts.Name) || opts.Name == rootName {
-		return Result{}, errors.New("add: require a valid team name other than reserved root")
-	}
 	if !filepath.IsAbs(opts.Root) {
 		return Result{}, errors.New("add: configuration root must be absolute")
 	}
-	remote, err := gitremote.URL(opts.Source)
+	var team *config.Team
+	var err error
+	if opts.Directory != "" {
+		team, err = directoryTeam(ctx, opts)
+	} else {
+		if err = validateAddName(opts.Name); err != nil {
+			return Result{}, err
+		}
+		team, err = readNamedTeam(filepath.Join(opts.Root, "kuketeam.d", opts.Name+".yaml"), opts.Name)
+		if err == nil {
+			team.ProjectSource = &config.Source{
+				Name: "project", URL: opts.Source,
+				Branch: opts.Branch, Tag: opts.Tag, Commit: opts.Commit, ClonePath: "/home/user/" + opts.Name,
+			}
+		}
+	}
 	if err != nil {
 		return Result{}, err
 	}
-	if err = validateRevision(opts); err != nil {
+	opts.Name = team.Metadata.Name
+	if err = validateAddName(opts.Name); err != nil {
 		return Result{}, err
 	}
+	source := team.ProjectSource
+	remote, err := gitremote.URL(source.URL)
+	if err != nil {
+		return Result{}, err
+	}
+	revision := AddOptions{Branch: source.Branch, Tag: source.Tag, Commit: source.Commit}
+	if err = validateRevision(revision); err != nil {
+		return Result{}, err
+	}
+	missingRevision := source.Branch == "" && source.Tag == "" && source.Commit == ""
 	path := filepath.Join(opts.Root, "kuketeams.yaml")
 	f, err := os.Open(path)
 	if err != nil {
@@ -63,21 +87,8 @@ func Add(ctx context.Context, opts AddOptions) (Result, error) {
 	if err != nil {
 		return Result{}, fmt.Errorf("add global configuration: %w", err)
 	}
-	team, err := readNamedTeam(filepath.Join(opts.Root, "kuketeam.d", opts.Name+".yaml"), opts.Name)
-	if err != nil {
-		return Result{}, err
-	}
-	// Preserve the authored spelling (including GitHub shorthand), never credentials.
-	team.ProjectSource = &config.Source{
-		Name:      "project",
-		URL:       opts.Source,
-		Branch:    opts.Branch,
-		Tag:       opts.Tag,
-		Commit:    opts.Commit,
-		ClonePath: "/home/user/" + opts.Name,
-	}
 	// Resolve validates collisions and references before any network operation.
-	if opts.Branch == "" && opts.Tag == "" && opts.Commit == "" {
+	if missingRevision {
 		team.ProjectSource.Branch = "pending-default-discovery"
 	}
 	effective, err := config.Resolve(cfg, team)
@@ -89,13 +100,13 @@ func Add(ctx context.Context, opts AddOptions) (Result, error) {
 			return Result{}, fmt.Errorf("source %q: %w", source.Name, err)
 		}
 	}
-	if opts.Branch == "" && opts.Tag == "" && opts.Commit == "" {
+	if missingRevision {
 		team.ProjectSource.Branch, err = gitremote.DefaultBranch(ctx, remote)
 		if err != nil {
 			return Result{}, err
 		}
-		opts.Branch = team.ProjectSource.Branch
-		if err = validateRevision(opts); err != nil {
+		revision.Branch = team.ProjectSource.Branch
+		if err = validateRevision(revision); err != nil {
 			return Result{}, err
 		}
 	}
@@ -108,7 +119,11 @@ func Add(ctx context.Context, opts AddOptions) (Result, error) {
 		}
 		cleanup()
 	}
-	return runTeam(ctx, opts.Options, cfg, team, Result{}, "kuketeams add "+opts.Name+" --source <repository>")
+	command := "kuketeams add " + opts.Name + " --source <repository>"
+	if opts.Directory != "" {
+		command = "kuketeams add <directory> --name " + opts.Name
+	}
+	return runTeam(ctx, opts.Options, cfg, team, Result{}, command)
 }
 
 func validateRevision(opts AddOptions) error {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Prepare downloaded Binary CI artifacts; publishing is a separate workflow step.
+# Prepare downloaded release binary artifacts; publishing is a separate workflow step.
 downloads=$1
 output=$2
 tag=$3

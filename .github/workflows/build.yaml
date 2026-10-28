@@ -1,11 +1,6 @@
-name: Binary CI
+name: Release binaries
 
 on:
-  pull_request:
-    branches: [main]
-  push:
-    branches: [main]
-  workflow_dispatch:
   workflow_call:
     inputs:
       version:

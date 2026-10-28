@@ -4,7 +4,7 @@ metadata:
   name: codex
 spec:
   images:
-    - image: ghcr.io/eminwux/kuketeams/codex:v0.2.0
+    - image: ghcr.io/eminwux/kuketeams/codex:v0.2.1
       capabilities:
         - codex
         - git
@@ -12,7 +12,7 @@ spec:
         - go
         - node
         - make
-    - image: ghcr.io/eminwux/kuketeams/codex-root:v0.2.0
+    - image: ghcr.io/eminwux/kuketeams/codex-root:v0.2.1
       capabilities:
         - codex
         - git

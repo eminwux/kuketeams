@@ -14,3 +14,19 @@ spec:
           "hasCompletedOnboarding": true,
           "installMethod": "native"
         }
+  images:
+    - name: claude
+      build:
+        context: harnesses/claude
+        dockerfile: Dockerfile
+      capabilities: [claude, git, gh, go, node, make]
+    - name: claude-android
+      build:
+        context: harnesses/claude
+        dockerfile: Dockerfile.android
+      capabilities: [claude, git, gh, go, node, make, android]
+    - name: claude-root
+      build:
+        context: harnesses/claude
+        dockerfile: Dockerfile.root
+      capabilities: [claude, git, gh, go, node, make, root]

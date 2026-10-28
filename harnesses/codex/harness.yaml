@@ -6,3 +6,14 @@ spec:
   skillPath: $HOME/.agents/skills
   makeTarget: codex
   template: blueprint.tmpl.yaml
+  images:
+    - name: codex
+      build:
+        context: harnesses/codex
+        dockerfile: Dockerfile
+      capabilities: [codex, git, gh, go, node, make]
+    - name: codex-root
+      build:
+        context: harnesses/codex
+        dockerfile: Dockerfile.root
+      capabilities: [codex, git, gh, go, node, make, root]

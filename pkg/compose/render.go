@@ -30,6 +30,7 @@ import (
 	model "github.com/eminwux/kukeon/pkg/api/model/kuketeams"
 	api "github.com/eminwux/kukeon/pkg/api/model/v1beta1"
 	"github.com/eminwux/kuketeams/pkg/config"
+	"github.com/eminwux/kuketeams/pkg/harness"
 )
 
 func checkAssets(source fs.FS, rolePath string, role *model.Role, settings model.RoleHarness, harness string) error {
@@ -90,8 +91,8 @@ func checkSettings(h string, s model.RoleHarness) error {
 	return nil
 }
 
-func render(source fs.FS, hpath string, h *model.Harness, role *model.Role, selection config.Role,
-	repo config.Source, image model.ImageCatalogEntry, needs []string, sources []config.Source, opts Options,
+func render(source fs.FS, hpath string, h *harness.Harness, role *model.Role, selection config.Role,
+	repo config.Source, image harness.CatalogImage, needs []string, sources []config.Source, opts Options,
 ) (*api.CellBlueprintDoc, error) {
 	if !fs.ValidPath(h.Spec.Template) {
 		return nil, errors.New("harness template: require a source-relative filename")

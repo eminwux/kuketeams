@@ -1,6 +1,7 @@
 ARG REGISTRY=ghcr.io/eminwux/kuketeams
+ARG IMAGE_PREFIX=ghcr.io/eminwux/kuketeams/
 ARG TAG=latest
-FROM ${REGISTRY}/base-user:${TAG}
+FROM ${IMAGE_PREFIX}base-user:${TAG}
 
 ARG CODEX_VERSION=0.163.0
 

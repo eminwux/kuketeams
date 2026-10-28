@@ -364,7 +364,7 @@ func assertRootResources(t *testing.T, result *compose.Result) {
 		p.Blueprint.Spec.Prefix != p.Config.Metadata.Name || p.Config.Spec.Blueprint.Name != p.Config.Metadata.Name {
 		t.Fatal("unstable identity")
 	}
-	if p.Image.Ref != "codex" || p.Image.Image != "ghcr.io/eminwux/kuketeams/codex:v0.2.0" {
+	if p.Image.Image != "ghcr.io/eminwux/kuketeams/codex:v0.2.0" {
 		t.Fatalf("image = %+v", p.Image)
 	}
 	c := p.Blueprint.Spec.Cell.Containers[0]
@@ -857,5 +857,63 @@ func TestInheritedHarnessDefaultAndRoleOverride(t *testing.T) {
 		if len(result.Pairs) != 1 || result.Pairs[0].Harness != want {
 			t.Fatalf("inherited selection: %+v", result.Pairs)
 		}
+	}
+}
+
+func TestCatalogFollowsSelectedSourceAndPath(t *testing.T) {
+	cfg, opts := fixture(t)
+	source := copiedSource(t)
+	external := fstest.MapFS{}
+	for name, file := range source {
+		if strings.HasPrefix(name, "harnesses/codex/") {
+			external["nested/runtime/"+strings.TrimPrefix(name, "harnesses/codex/")] = &fstest.MapFile{
+				Data: slices.Clone(file.Data),
+			}
+		}
+	}
+	catalogPath := "nested/runtime/images.yaml"
+	external[catalogPath].Data = bytes.ReplaceAll(
+		external[catalogPath].Data,
+		[]byte("ghcr.io/eminwux/kuketeams/codex:v0.2.0"),
+		[]byte("registry.test/custom/codex:v9"),
+	)
+	cfg.Spec.Defaults.Sources = append(
+		cfg.Spec.Defaults.Sources,
+		config.Source{Name: "external", URL: "https://github.com/example/external", Tag: "v9"},
+	)
+	cfg.Spec.Defaults.Harnesses[0].Source = "external"
+	cfg.Spec.Defaults.Harnesses[0].Path = "nested/runtime"
+	opts.Sources["external"] = external
+	result, err := compose.Compose(cfg, selectedTeam(cfg), opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := result.Pairs[0].Blueprint.Spec.Cell.Containers[0].Image; got != "registry.test/custom/codex:v9" {
+		t.Fatalf("did not bake selected source image: %s", got)
+	}
+	for _, test := range []struct {
+		name string
+		raw  []byte
+		want string
+	}{
+		{"missing", nil, "nested/runtime/images.yaml"},
+		{"wrong-identity", bytes.Replace(external[catalogPath].Data, []byte("name: codex"), []byte("name: claude"), 1), "metadata.name"},
+		{"unsuitable", bytes.ReplaceAll(external[catalogPath].Data, []byte("        - go\n"), []byte("        - rust\n")), "no published image"},
+		{"local", bytes.Replace(external[catalogPath].Data, []byte("registry.test/custom/codex:v9"), []byte("codex:dev"), 1), "registry-qualified"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			original := external[catalogPath]
+			defer func() { external[catalogPath] = original }()
+			if test.raw == nil {
+				delete(external, catalogPath)
+			} else {
+				external[catalogPath] = &fstest.MapFile{Data: test.raw}
+			}
+			_, composeErr := compose.Compose(cfg, selectedTeam(cfg), opts)
+			if composeErr == nil || !strings.Contains(composeErr.Error(), test.want) ||
+				!strings.Contains(composeErr.Error(), catalogPath) {
+				t.Fatalf("catalog error: %v", composeErr)
+			}
+		})
 	}
 }

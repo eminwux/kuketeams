@@ -21,52 +21,43 @@ import (
 
 	model "github.com/eminwux/kukeon/pkg/api/model/kuketeams"
 	"github.com/eminwux/kuketeams/pkg/compose"
+	"github.com/eminwux/kuketeams/pkg/harness"
 )
 
 func TestImageSelectionRequiresCompleteCapabilities(t *testing.T) {
-	catalog := &model.ImageCatalog{
-		APIVersion: "kuketeams.io/v1", Kind: "ImageCatalog",
-		Spec: model.ImageCatalogSpec{Images: []model.ImageCatalogEntry{
-			{
-				Ref:          "wrong-harness",
-				Harness:      "claude",
-				Image:        "registry.test/claude:v1",
-				Capabilities: []string{"codex", "gh", "go"},
-			},
-			{
-				Ref:          "root",
-				Harness:      "codex",
-				Image:        "registry.test/root:v1",
-				Capabilities: []string{"codex", "gh", "go", "root"},
-			},
-			{Ref: "go", Harness: "codex", Image: "registry.test/go:v1", Capabilities: []string{"codex", "go"}},
-			{Ref: "gh", Harness: "codex", Image: "registry.test/gh:v1", Capabilities: []string{"codex", "gh"}},
+	catalog := &harness.ImageCatalog{
+		APIVersion: "kuketeams.io/v1", Kind: "HarnessImageCatalog",
+		Metadata: model.Metadata{Name: "codex"},
+		Spec: harness.CatalogSpec{Images: []harness.CatalogImage{
+			{Image: "registry.test/root:v1", Capabilities: []string{"codex", "gh", "go", "root"}},
+			{Image: "registry.test/go:v1", Capabilities: []string{"codex", "go"}},
+			{Image: "registry.test/gh:v1", Capabilities: []string{"codex", "gh"}},
+			{Image: "registry.test/second-go:v1", Capabilities: []string{"codex", "go"}},
 		}},
 	}
 	if _, err := compose.SelectImage(catalog, "codex", []string{"go", "gh"}); err == nil {
-		t.Fatal("selected privileged image or combined capabilities across images")
+		t.Fatal("combined capabilities or selected root without opt-in")
 	}
 	selected, err := compose.SelectImage(catalog, "codex", []string{"go"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if selected.Ref != "go" {
-		t.Fatal("wrong harness or gratuitous root selection")
+	if err != nil || selected.Image != "registry.test/go:v1" {
+		t.Fatalf("selection order/root opt-in: %+v %v", selected, err)
 	}
 	selected, err = compose.SelectImage(catalog, "codex", []string{"go", "root"})
-	if err != nil {
-		t.Fatal(err)
+	if err != nil || selected.Image != "registry.test/root:v1" {
+		t.Fatalf("root selection: %+v %v", selected, err)
 	}
-	if selected.Ref != "root" {
-		t.Fatal("root capability ignored")
+	if _, err = compose.SelectImage(catalog, "claude", nil); err == nil {
+		t.Fatal("accepted another harness catalog")
 	}
-	catalog.Spec.Images[2].Image = "local-go"
-	if _, selectionErr := compose.SelectImage(catalog, "codex", []string{"go"}); selectionErr == nil {
-		t.Fatal("accepted nonpublished image reference")
+	for _, ref := range []string{"local-go", "codex:dev", "registry.test/go", "invalid::ref"} {
+		catalog.Spec.Images[1].Image = ref
+		if _, err = compose.SelectImage(catalog, "codex", []string{"go"}); err == nil {
+			t.Fatalf("accepted nonpublished reference %q", ref)
+		}
 	}
-	catalog.Spec.Images[2].Image = "registry.test/go:v1"
-	catalog.Spec.Images[2].Capabilities = []string{"go"}
-	if _, selectionErr := compose.SelectImage(catalog, "codex", []string{"go"}); selectionErr == nil {
+	catalog.Spec.Images[1].Image = "registry.test/go:v1"
+	catalog.Spec.Images[1].Capabilities = []string{"go"}
+	if _, err = compose.SelectImage(catalog, "codex", []string{"go"}); err == nil {
 		t.Fatal("harness capability not required")
 	}
 }

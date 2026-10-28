@@ -10,7 +10,7 @@ workflow. Original license notices are retained under the repository's
 [Apache 2.0 license](../LICENSE). Agents originals are unchanged.
 
 The packaging adaptations are the kuketeams image namespace, versioned base
-references, a shared Buildx Bake graph/entrypoint, release checks, and the tag
+references, a generated Buildx Bake graph and shared entrypoint, release checks, and the tag
 publication workflow. Hook tests compare against recorded outputs from the six
 upstream Claude role hooks; those fixtures avoid copying specialized roles.
 The review-required home adaptation uses account `user` in non-root images
@@ -35,14 +35,27 @@ that every SDK executable supports arm64. Agent CLI `latest` defaults and
 upstream apt/install endpoints are preserved, so source pinning alone does not
 make image bytes reproducible.
 
-[images.yaml](images.yaml) catalogs the seven selectable leaf images; bases
-are build intermediates. [templates.md](templates.md) preserves the upstream
-template/partial contract. Each harness's `harness.yaml` resolves its template
-within the same directory. Role repositories, role `makeTarget` installation,
-operator mounts, credentials, and daemon volumes remain runtime inputs supplied
-by the external agents checkout and operator. They are not Docker COPY inputs.
-Production CLI composition, `--build`, cell startup, and role migration belong
-to later epic steps.
+Each harness owns its selectable images in `spec.images` of its authored
+`harness.yaml`: variant name, build context, Dockerfile, and capabilities. Contexts
+are relative to the source repository root; Dockerfiles are relative to their
+context. The variant name supplies the image repository name. Registry and tag
+are command inputs, never Harness fields. The seven variants and their capability
+sets are retained; bases remain shared build intermediates.
+
+Each sibling `images.yaml` is a generated `kuketeams.io/v1 HarnessImageCatalog`.
+It contains `metadata.name` matching the Harness, plus ordered `spec.images`
+entries containing only resolved `image` references and copied `capabilities`.
+Composition reads the selected source/path's sibling catalog, including external
+layouts, and bakes its selected published reference into the blueprint. Root
+variants require explicit `root` capability opt-in. `pkg/harness` owns these
+source document models; kukeon's Role, seed and daemon document models remain
+unchanged, so this schema migration requires no upstream kukeon release.
+
+[templates.md](templates.md) preserves the upstream template/partial contract.
+Each Harness resolves its template within its own directory. Role installation,
+operator mounts, credentials, and daemon volumes remain runtime inputs. They are
+not Docker COPY inputs. CLI local `--build` and runtime image import are outside
+this build/release workflow.
 
 ## Local builds and checks
 
@@ -57,20 +70,33 @@ make test-harnesses              # references, rendered templates, hooks, build 
 make -C harnesses plan           # resolved build graph without building
 make -C harnesses images         # native images loaded into local Docker
 make -C harnesses images IMAGES="codex codex-root"
+make -C harnesses/codex images REGISTRY= TAG=dev MODE=load
 make -C harnesses smoke          # after building all native images
 make -C harnesses images MODE=check PLATFORMS=linux/amd64,linux/arm64
 ```
 
-`build-images.sh` is the shared local/CI entrypoint and can also be run from
-any working directory. `REGISTRY` defaults to `ghcr.io/eminwux/kuketeams`, `TAG`
-to `latest`. `MODE=load` requires one platform; `MODE=check` uses cache-only
-outputs and never publishes. `MODE=push` explicitly publishes all selected
-images, including their bases when the complete default group is selected.
-Local Docker loads and checks need no registry credentials. A subset build
-automatically builds its transitive bases through Bake `target:` contexts.
-These contexts share freshly built bases inside BuildKit, without registry
-round trips or publishing intermediates for PR validation. See the
-[Docker Bake context documentation](https://docs.docker.com/build/bake/contexts/).
+Each harness Makefile invokes the shared `build-images.sh` entrypoint, which
+reads authored Harness definitions through `harnesses/cmd/images` and produces
+a temporary Bake plan. There is no second static leaf/build inventory. The
+parent Makefile builds shared bases first, then delegates through recursive Make.
+Direct harness builds include the same linked base graph. Bases revisited by a
+child build use BuildKit's cache; dependency order does not require published
+base images for checks or local loads.
+
+`REGISTRY` defaults to `ghcr.io/eminwux/kuketeams`, `TAG` to `latest`.
+An explicitly empty `REGISTRY=` survives recursive Make and produces names such
+as `codex:dev` and linked bases such as `base-user:dev`. `IMAGE_PREFIX` supplies
+the corresponding Dockerfile FROM prefix. `PLATFORMS` is a comma-separated list;
+`MODE=load` requires one platform, `MODE=check` uses cache-only outputs, and
+`MODE=push` publishes selected images. `IMAGES` selects a space-separated subset;
+unknown names fail before Docker runs. The parent skips harnesses without a
+selected variant. Build commands never overwrite committed release catalogs,
+including local builds with a different registry or tag. Only the explicit
+release-generation command writes catalogs.
+
+Local loads and checks need no registry credentials. Bake `target:` contexts
+share freshly built transitive bases inside BuildKit without registry round
+trips. See the [Docker Bake context documentation](https://docs.docker.com/build/bake/contexts/).
 
 `.tmpl.yaml` files contain Go templates, so generic YAML/Prettier hooks exclude
 only those files. Go tests parse every sibling partial and render project and
@@ -86,28 +112,39 @@ and CLI version/help startup without credentials or network access. The common
 
 The final publication workflow triggers only on pushed `v[0-9]*` tags. The
 release script additionally requires `vMAJOR.MINOR.PATCH` with an optional
-prerelease suffix. Before an authorized release, pin the leaf catalog, commit
-it, and tag that commit:
+prerelease suffix. The operator performs this sequence manually:
 
-```sh
-./harnesses/release-images.sh v0.1.0
-./harnesses/release-images.sh v0.1.0 --check
-# Commit the catalog, then create/push the release tag through the release process.
-```
+1. Generate all three sibling catalogs from Harness definitions and explicit
+   registry/tag inputs:
 
-The catalog's initial `v0.1.0` references reserve the first release; they are not
-an assertion that images have already been published. No release tag is created
-by this packaging change. Tag runs check catalog/tag consistency before login,
-then use the same graph with both platforms and registry outputs. Every base
-and leaf carries the release tag, and every leaf consumes that release's base
-result, preventing an unrelated `latest` base from entering a release. Only the
-tag publication job receives `packages: write` and the GHCR login token.
+   ```sh
+   REGISTRY=ghcr.io/eminwux/kuketeams ./harnesses/release-images.sh v0.3.0
+   REGISTRY=ghcr.io/eminwux/kuketeams ./harnesses/release-images.sh v0.3.0 --check
+   ```
+
+2. Commit the generated catalogs and merge the change to main.
+3. Create and push `v0.3.0` pointing to that merged commit.
+4. Tag CI checks that the commit belongs to main, regenerates catalogs in
+   non-mutating `--check` mode using the exact pushed tag and release registry,
+   and fails with the drifting paths and regeneration command on any difference.
+   It then builds/publishes through the same Make hierarchy, passing registry,
+   tag, both platforms and `MODE=push`. There is no generated-file commit or
+   release-asset catalog download in CI.
+
+Generation validates all definitions before writing any catalogs. It preserves
+image/capability order and rejects duplicate image names. Check mode compares
+exact generated bytes, including capabilities and identity, without writing.
+The committed `v0.2.0` references preserve the existing release selection; they
+must be regenerated before a later tag. Release notes collect references from
+all per-harness catalogs. Every base and leaf carries the pushed release tag,
+and leaves consume that release's base result. Only the tag publication job
+receives `packages: write` and the GHCR login token.
 
 After a tag run succeeds, verify all ten references, including bases:
 
 ```sh
 for image in base base-user base-root claude claude-root claude-android codex codex-root opencode opencode-root; do
-  docker buildx imagetools inspect "ghcr.io/eminwux/kuketeams/$image:v0.1.0"
+  docker buildx imagetools inspect "ghcr.io/eminwux/kuketeams/$image:v0.3.0"
 done
 ```
 
@@ -118,4 +155,4 @@ Then repeat manifest inspection and `docker pull --platform linux/amd64` and
 `docker pull --platform linux/arm64` for each reference with an empty temporary
 `DOCKER_CONFIG` on a machine with Docker/Buildx installed. This confirms public
 pull access independently of a logged-in publisher. Compare leaf references
-with the tagged catalog using `release-images.sh <tag> --check` at that tag.
+with the tagged catalogs using `release-images.sh <tag> --check` at that tag.

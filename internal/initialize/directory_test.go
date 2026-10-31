@@ -402,3 +402,49 @@ func TestDirectoryNamePrecedence(t *testing.T) {
 		})
 	}
 }
+
+func TestDirectoryLocalSSHConfiguration(t *testing.T) {
+	for _, mode := range []string{"ssh-command", "url-rewrite", "linked-worktree"} {
+		t.Run(mode, func(t *testing.T) {
+			opts, _ := setupDirectoryAdd(t)
+			opts.Name = "private-project"
+			fixtureGit(t, opts.Directory, "config", "--local", "core.sshCommand", os.Getenv("GIT_SSH_COMMAND"))
+			t.Setenv("GIT_SSH_COMMAND", "")
+			t.Setenv("GIT_SSH", "/nonexistent/ssh")
+			if mode == "url-rewrite" {
+				fixtureGit(
+					t,
+					opts.Directory,
+					"config",
+					"--local",
+					"url.git@work-alias:.insteadOf",
+					"https://private.invalid/",
+				)
+				fixtureGit(
+					t,
+					opts.Directory,
+					"remote",
+					"set-url",
+					"origin",
+					"https://private.invalid/owner/project.git",
+				)
+			}
+			if mode == "linked-worktree" {
+				dir := filepath.Join(t.TempDir(), "worktree")
+				fixtureGit(t, opts.Directory, "worktree", "add", "--detach", dir)
+				fixtureGit(t, opts.Directory, "config", "extensions.worktreeConfig", "true")
+				command := fixtureGit(t, opts.Directory, "config", "--get", "core.sshCommand")
+				fixtureGit(t, opts.Directory, "config", "--unset", "core.sshCommand")
+				fixtureGit(t, dir, "config", "--worktree", "core.sshCommand", command)
+				opts.Directory = dir
+			}
+			// Discover the origin through Git and then perform real object transfer.
+			if _, err := Add(t.Context(), opts); err != nil {
+				t.Fatal(err)
+			}
+			if opts.Client.(*fakeClient).applies != 1 {
+				t.Fatal("private source did not reach composition and application")
+			}
+		})
+	}
+}

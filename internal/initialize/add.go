@@ -100,6 +100,12 @@ func Add(ctx context.Context, opts AddOptions) (Result, error) {
 			return Result{}, fmt.Errorf("source %q: %w", source.Name, err)
 		}
 	}
+	if opts.Directory != "" {
+		ctx, err = gitremote.WithRepositoryConfig(ctx, opts.Directory)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	if missingRevision {
 		team.ProjectSource.Branch, err = gitremote.DefaultBranch(ctx, remote)
 		if err != nil {

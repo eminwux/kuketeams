@@ -21,7 +21,6 @@ import (
 	"context"
 	"encoding/pem"
 	"errors"
-	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -297,8 +296,9 @@ func TestAddFailuresPreserveAcceptedEntry(t *testing.T) {
 // HTTPS is served by Git's actual smart HTTP backend. A local credential helper
 // supplies fixture-only authentication when challenged; no embedded URL secret.
 func TestAddHTTPSCredentialHelperAndPublic(t *testing.T) {
-	for _, private := range []bool{false, true} {
-		t.Run(fmt.Sprintf("private=%t", private), func(t *testing.T) {
+	for _, mode := range []string{"public", "private-global", "private-local", "private-conditional", "private-relative-ca", "private-scoped-relative-ca"} {
+		t.Run(mode, func(t *testing.T) {
+			private := mode != "public"
 			opts, _ := setupAdd(t)
 			repo := os.Getenv("ADD_FIXTURE_REPO")
 			fixtureGit(t, repo, "config", "http.receivepack", "false")
@@ -333,11 +333,47 @@ func TestAddHTTPSCredentialHelperAndPublic(t *testing.T) {
 				"#!/bin/sh\n[ \"$1\" = get ] || exit 0\ncat >/dev/null\nprintf 'username=fixture\\npassword=fixture-only\\n'\n",
 			)
 			if private {
-				fixtureGit(t, repo, "config", "--global", "credential.helper", helper)
+				scope := "--global"
+				if mode == "private-local" {
+					scope = "--local"
+				}
+				if mode == "private-conditional" {
+					include := filepath.Join(t.TempDir(), "auth.config")
+					fixtureGit(t, repo, "config", "--file", include, "credential.helper", helper)
+					fixtureGit(t, repo, "config", "--global", "includeIf.gitdir:"+repo+"/.git.path", include)
+				} else {
+					fixtureGit(t, repo, "config", scope, "credential.helper", helper)
+				}
 			} else {
 				fixtureGit(t, repo, "config", "--global", "credential.helper", "")
 			}
 			opts.Source = server.URL + "/" + filepath.Base(repo)
+			relativeCA := mode == "private-relative-ca" || mode == "private-scoped-relative-ca"
+			if relativeCA {
+				// A native fetch resolves the CA relative to the input checkout.
+				t.Setenv("GIT_SSL_CAINFO", "")
+				if err := os.Unsetenv("GIT_SSL_CAINFO"); err != nil {
+					t.Fatal(err)
+				}
+				cert, err := os.ReadFile(ca)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err = os.WriteFile(filepath.Join(repo, "ca.pem"), cert, 0o600); err != nil {
+					t.Fatal(err)
+				}
+				key := "http.sslCAInfo"
+				if mode == "private-scoped-relative-ca" {
+					key = "http." + server.URL + ".sslCAInfo"
+				}
+				fixtureGit(t, repo, "config", "--local", key, "ca.pem")
+			}
+			if mode == "private-local" || mode == "private-conditional" || relativeCA {
+				fixtureGit(t, repo, "remote", "add", "origin", opts.Source)
+				// Native Git succeeds in the very same shell/configuration context.
+				fixtureGit(t, repo, "ls-remote", "--exit-code", "origin", "refs/heads/trunk")
+				opts.Directory, opts.Name, opts.Source = repo, "private-project", ""
+			}
 			if _, err := Add(t.Context(), opts); err != nil {
 				t.Fatal(err)
 			}
@@ -348,7 +384,14 @@ func TestAddHTTPSCredentialHelperAndPublic(t *testing.T) {
 			}
 			if private {
 				before := append([]byte(nil), raw...)
-				fixtureGit(t, repo, "config", "--global", "credential.helper", "")
+				switch mode {
+				case "private-local":
+					fixtureGit(t, repo, "config", "--local", "credential.helper", "")
+				case "private-conditional":
+					fixtureGit(t, repo, "config", "--global", "--unset-all", "includeIf.gitdir:"+repo+"/.git.path")
+				default:
+					fixtureGit(t, repo, "config", "--global", "credential.helper", "")
+				}
 				fake := newFake()
 				opts.Client = fake
 				if _, err := Add(t.Context(), opts); err == nil || strings.Contains(err.Error(), "fixture-only") {

@@ -109,7 +109,8 @@ func scpURL(raw string) (string, error) {
 func Run(ctx context.Context, args ...string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, time.Minute)
 	defer cancel()
-	ssh, err := sshCommand(ctx)
+	env := transportEnv(ctx)
+	ssh, err := sshCommand(ctx, env)
 	if err != nil {
 		return nil, err
 	}
@@ -127,7 +128,7 @@ func Run(ctx context.Context, args ...string) ([]byte, error) {
 		return killErr
 	}
 	cmd.Env = append(
-		os.Environ(),
+		env,
 		"GIT_TERMINAL_PROMPT=0",
 		"GCM_INTERACTIVE=never",
 		"GIT_ASKPASS=/bin/false",
@@ -142,11 +143,12 @@ func Run(ctx context.Context, args ...string) ([]byte, error) {
 	return output, nil
 }
 
-func sshCommand(ctx context.Context) (string, error) {
+func sshCommand(ctx context.Context, env []string) (string, error) {
 	if command := os.Getenv("GIT_SSH_COMMAND"); command != "" {
 		return command, nil
 	}
 	cmd := exec.CommandContext(ctx, "git", "config", "--get", "core.sshCommand")
+	cmd.Env = env
 	cmd.WaitDelay = time.Second
 	output, err := cmd.Output()
 	if err != nil {

@@ -61,3 +61,49 @@ func TestRepositoryTransportConfigPrecedence(t *testing.T) {
 		t.Fatal("original checkout layout leaked into temporary repository")
 	}
 }
+
+func TestRepositoryTransportPaths(t *testing.T) {
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	repo, temporary := t.TempDir(), t.TempDir()
+	if _, err := Run(t.Context(), "init", "--quiet", repo); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct{ key, value, want string }{
+		{"http.sslCAInfo", "ca.pem", filepath.Join(repo, "ca.pem")},
+		{"http.sslCAInfo", "nested/ca.pem", filepath.Join(repo, "nested/ca.pem")},
+		{"http.https://host.example/api.sslCAInfo", "scoped.pem", filepath.Join(repo, "scoped.pem")},
+		{"http.sslCAPath", "certs", filepath.Join(repo, "certs")},
+		{"http.sslCert", "~/client.pem", filepath.Join(home, "client.pem")},
+		{"http.sslKey", "/absolute/key.pem", "/absolute/key.pem"},
+		{"http.proxySSLCAInfo", "proxy-ca.pem", filepath.Join(repo, "proxy-ca.pem")},
+		{"http.proxySSLCert", "proxy-cert.pem", filepath.Join(repo, "proxy-cert.pem")},
+		{"http.proxySSLKey", "proxy-key.pem", filepath.Join(repo, "proxy-key.pem")},
+		{"http.cookieFile", "", ""},
+		{"http.extraHeader", "X-Path: relative/value", "X-Path: relative/value"},
+	} {
+		if _, err := Run(t.Context(), "-C", repo, "config", "--add", tc.key, tc.value); err != nil {
+			t.Fatal(err)
+		}
+		ctx, err := WithRepositoryConfig(t.Context(), repo)
+		if err != nil {
+			t.Fatal(err)
+		}
+		output, err := Run(ctx, "-C", temporary, "config", "--get", tc.key)
+		if err != nil || string(output) != tc.want+"\n" {
+			t.Fatalf("path resolution changed for %s", tc.key)
+		}
+	}
+	// Both duplicate CA values retain their original order after normalization.
+	ctx, err := WithRepositoryConfig(t.Context(), repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, err := Run(ctx, "-C", temporary, "config", "--get-all", "http.sslCAInfo")
+	want := filepath.Join(repo, "ca.pem") + "\n" + filepath.Join(repo, "nested/ca.pem") + "\n"
+	if err != nil || string(output) != want {
+		t.Fatal("duplicate path settings lost ordering")
+	}
+}

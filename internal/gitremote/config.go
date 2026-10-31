@@ -19,6 +19,7 @@ package gitremote
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 )
@@ -51,7 +52,64 @@ func WithRepositoryConfig(ctx context.Context, dir string) (context.Context, err
 			entries = append(entries, configEntry{key, value})
 		}
 	}
+	if err = resolveTransportPaths(ctx, dir, entries); err != nil {
+		return nil, err
+	}
 	return context.WithValue(ctx, transportConfigKey{}, entries), nil
+}
+
+// Git expands home/prefix notation for path-valued settings. Resolve any
+// remaining relative paths before a later -C changes their working directory.
+// Read each key's full value list to retain duplicate ordering and URL scopes.
+func resolveTransportPaths(ctx context.Context, dir string, entries []configEntry) error {
+	base, err := filepath.Abs(dir)
+	if err != nil {
+		return err
+	}
+	paths := map[string][]string{}
+	for i, entry := range entries {
+		if !transportPathKey(entry.key) {
+			continue
+		}
+		values, ok := paths[entry.key]
+		if !ok {
+			output, runErr := Run(
+				ctx,
+				"-C",
+				dir,
+				"config",
+				"--includes",
+				"--null",
+				"--type=path",
+				"--get-all",
+				entry.key,
+			)
+			if runErr != nil {
+				return runErr
+			}
+			values = strings.Split(strings.TrimSuffix(string(output), "\x00"), "\x00")
+		}
+		value := values[0]
+		paths[entry.key] = values[1:]
+		if value != "" && !filepath.IsAbs(value) {
+			value = filepath.Join(base, value)
+		}
+		entries[i].value = value
+	}
+	return nil
+}
+
+func transportPathKey(key string) bool {
+	if !strings.HasPrefix(key, "http.") {
+		return false
+	}
+	// A URL subsection can itself contain dots; the variable is the last part.
+	switch key[strings.LastIndexByte(key, '.')+1:] {
+	case "sslcainfo", "sslcapath", "sslcert", "sslkey", "proxysslcainfo", "proxysslcert", "proxysslkey", "cookiefile":
+		return true
+	default:
+		return false
+	}
 }
 
 func transportKey(key string) bool {

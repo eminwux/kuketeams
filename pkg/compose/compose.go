@@ -20,6 +20,7 @@ package compose
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"io"
@@ -248,14 +249,21 @@ func composePair(
 	return pair, nil
 }
 
-// resourceName escapes hyphens within components before joining them with single
-// hyphens. Validated team/role/harness names start and end in alphanumerics, so
-// component separators cannot be confused with escaped runs inside a name.
+// resourceName keeps alphanumeric components readable and unchanged. Names with
+// punctuation get a digest of the original component boundaries to distinguish
+// otherwise ambiguous joins. Runtime identifiers require single separators.
 func resourceName(parts ...string) string {
-	for i, part := range parts {
-		parts[i] = strings.ReplaceAll(part, "-", "--")
+	joined := strings.Join(parts, "-")
+	if !strings.ContainsAny(strings.Join(parts, ""), ".-") {
+		return joined
 	}
-	return strings.Join(parts, "-")
+	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
+	for i, part := range parts {
+		parts[i] = strings.Join(strings.FieldsFunc(part, func(r rune) bool {
+			return r == '-' || r == '.'
+		}), "-")
+	}
+	return fmt.Sprintf("%s-%x", strings.Join(parts, "-"), digest[:8])
 }
 
 func load(source fs.FS, filename string, out any) error {

@@ -249,21 +249,23 @@ func composePair(
 	return pair, nil
 }
 
-// resourceName keeps alphanumeric components readable and unchanged. Names with
-// punctuation get a digest of the original component boundaries to distinguish
-// otherwise ambiguous joins. Runtime identifiers require single separators.
+// resourceName joins authored components and normalizes punctuation runs so cell
+// identifiers remain readable and valid for the container runtime.
 func resourceName(parts ...string) string {
-	joined := strings.Join(parts, "-")
+	return strings.Join(strings.FieldsFunc(strings.Join(parts, "-"), func(r rune) bool {
+		return r == '-' || r == '.'
+	}), "-")
+}
+
+// stateVolumeName retains the original component boundaries in a digest so
+// readable resource aliases cannot share persistent state accidentally.
+func stateVolumeName(parts ...string) string {
+	name := resourceName(parts...)
 	if !strings.ContainsAny(strings.Join(parts, ""), ".-") {
-		return joined
+		return name
 	}
 	digest := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
-	for i, part := range parts {
-		parts[i] = strings.Join(strings.FieldsFunc(part, func(r rune) bool {
-			return r == '-' || r == '.'
-		}), "-")
-	}
-	return fmt.Sprintf("%s-%x", strings.Join(parts, "-"), digest[:8])
+	return fmt.Sprintf("%s-%x", name, digest[:8])
 }
 
 func load(source fs.FS, filename string, out any) error {

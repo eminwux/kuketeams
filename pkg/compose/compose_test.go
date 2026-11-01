@@ -24,6 +24,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -647,6 +648,7 @@ func TestLaunchPreservesSourceRevision(t *testing.T) {
 }
 
 func TestResourceNamesIsolateTeamsAndSelections(t *testing.T) {
+	runtimeID := regexp.MustCompile(`^[A-Za-z0-9]+(?:[._-](?:[A-Za-z0-9]+))*$`)
 	for _, project := range []bool{false, true} {
 		scenario := "role-state"
 		if project {
@@ -675,6 +677,10 @@ func TestResourceNamesIsolateTeamsAndSelections(t *testing.T) {
 				{"root", "operator"},
 				{"root.a", "operator"},
 				{"root", "a.operator"},
+				{"esp32", "pr-reviewer"},
+				{"esp32", "pr--reviewer"},
+				{"esp32", "pr..reviewer"},
+				{"esp32", "pr.-reviewer"},
 			} {
 				team := selectedTeam(cfg)
 				team.Metadata.Name = selection.team
@@ -690,6 +696,16 @@ func TestResourceNamesIsolateTeamsAndSelections(t *testing.T) {
 						t.Fatalf("%s and %s collide on resource %q", previous, owner, name)
 					}
 					resources[name] = owner
+					if !runtimeID.MatchString(name) {
+						t.Fatalf("invalid runtime resource name %q for %s", name, owner)
+					}
+					if !runtimeID.MatchString("default_default_" + name + "-00b5e6_work") {
+						t.Fatalf("invalid derived container ID for %s", owner)
+					}
+					if selection.team == "root" && selection.role == "operator" &&
+						name != "root-operator-"+pair.Harness {
+						t.Fatalf("simple resource identity changed: %q", name)
+					}
 					if !config.ValidName(name) || pair.Blueprint.Metadata.Name != name ||
 						pair.Blueprint.Spec.Prefix != name || pair.Config.Spec.Blueprint.Name != name {
 						t.Fatalf("inconsistent resource identity for %s", owner)
@@ -707,8 +723,18 @@ func TestResourceNamesIsolateTeamsAndSelections(t *testing.T) {
 								t.Fatalf("%s and %s share state volume %q", previous, owner, volume.Source)
 							}
 							volumes[volume.Source] = owner
+							if !runtimeID.MatchString(volume.Source) {
+								t.Fatalf("invalid runtime volume name %q for %s", volume.Source, owner)
+							}
 						}
 					}
+				}
+				repeated, err := compose.Compose(cfg, team, opts)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(result, repeated) {
+					t.Fatalf("resource composition is not deterministic for %s/%s", selection.team, selection.role)
 				}
 			}
 		})

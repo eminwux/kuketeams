@@ -44,6 +44,7 @@ const (
 // An injected Client remains caller-owned; otherwise Run opens and closes it.
 type Options struct {
 	Root, Home, Host, Configuration string
+	Force                           bool
 	Sources                         map[string]fs.FS
 	Client                          Client
 }
@@ -54,18 +55,32 @@ type Result struct {
 	Resources int
 }
 
-// Run preserves authored configuration and the last successfully accepted entry.
-// Partial daemon application is not rolled back; a rerun converges the same team.
+// Run initializes only when configuration is absent, unless Force resets it.
+// Partial daemon application is not rolled back; a forced rerun converges the team.
 func Run(ctx context.Context, opts Options) (Result, error) {
-	boot, err := bootstrap.Run(ctx, bootstrap.Options{Root: opts.Root})
+	configPath := filepath.Join(opts.Root, "kuketeams.yaml")
+	if !opts.Force {
+		if _, err := os.Lstat(configPath); err == nil {
+			return Result{}, fmt.Errorf("init: configuration already exists at %s; use --force to reset it", configPath)
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return Result{}, fmt.Errorf("init: inspect configuration %s: %w", configPath, err)
+		}
+	}
+	boot, err := bootstrap.Run(ctx, bootstrap.Options{Root: opts.Root, Force: opts.Force})
 	result := Result{Bootstrap: boot}
 	if err != nil {
 		return result, err
 	}
+	if !opts.Force && !boot.Created {
+		return result, fmt.Errorf("init: configuration already exists at %s; use --force to reset it", configPath)
+	}
 	entryPath := filepath.Join(opts.Root, "kuketeam.d", "kukeon.yaml")
-	team, err := readTeam(entryPath)
-	if err != nil {
-		return result, err
+	team := config.Operator()
+	if !opts.Force {
+		team, err = readTeam(entryPath)
+		if err != nil {
+			return result, err
+		}
 	}
 	return runTeam(ctx, opts, boot.Config, team, result, "kuketeams init")
 }

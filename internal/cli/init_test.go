@@ -34,7 +34,7 @@ func TestInitOutcomes(t *testing.T) {
 		created bool
 		failure bool
 	}{
-		{name: "created", created: true}, {name: "existing"}, {name: "failed", failure: true},
+		{name: "created", created: true}, {name: "failed", failure: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			home := t.TempDir()
@@ -70,10 +70,7 @@ func TestInitOutcomes(t *testing.T) {
 				}
 				return
 			}
-			status := "Existing valid configuration"
-			if tc.created {
-				status = "Created configuration"
-			}
+			status := "Created configuration"
 			if err != nil || !strings.Contains(stdout.String(), status+": "+path) ||
 				!strings.Contains(
 					stdout.String(),
@@ -82,6 +79,22 @@ func TestInitOutcomes(t *testing.T) {
 				t.Fatalf("error=%v stdout=%q stderr=%q", err, &stdout, &stderr)
 			}
 		})
+	}
+}
+
+func TestInitForceIsForwarded(t *testing.T) {
+	cmd := newInitCommand(func() (string, error) { return "/home/operator", nil },
+		func(_ context.Context, opts initialize.Options) (initialize.Result, error) {
+			if !opts.Force {
+				t.Fatal("--force was not forwarded")
+			}
+			return initialize.Result{Bootstrap: bootstrap.Result{Path: opts.Root + "/kuketeams.yaml"}}, nil
+		})
+	var out bytes.Buffer
+	cmd.SetOut(&out)
+	cmd.SetArgs([]string{"--force"})
+	if err := cmd.Execute(); err != nil || !strings.Contains(out.String(), "Reset configuration") {
+		t.Fatalf("output=%q err=%v", &out, err)
 	}
 }
 

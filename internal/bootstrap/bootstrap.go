@@ -33,8 +33,9 @@ const directoryMode = 0o700
 // Options supplies the operator configuration directory and global Git reader.
 // Root must be absolute. A nil Git reader selects the real Git subprocess reader.
 type Options struct {
-	Root string
-	Git  GitReader
+	Root  string
+	Git   GitReader
+	Force bool
 }
 
 // Result describes the persisted configuration, including a competing creator's
@@ -47,6 +48,7 @@ type Result struct {
 }
 
 // Run preserves an existing valid configuration or creates the initial document.
+// Force replaces the document with the initial configuration.
 // It never prints, exits, fetches sources, or registers a team.
 func Run(ctx context.Context, opts Options) (Result, error) {
 	return run(ctx, opts, localFiles())
@@ -60,12 +62,14 @@ func run(ctx context.Context, opts Options, files fileOps) (Result, error) {
 	if err := ctx.Err(); err != nil {
 		return Result{}, fmt.Errorf("bootstrap %s: %w", path, err)
 	}
-	existing, err := load(path, files.readFile)
-	if err == nil {
-		return existing, nil
-	}
-	if !errors.Is(err, os.ErrNotExist) {
-		return Result{}, err
+	if !opts.Force {
+		existing, err := load(path, files.readFile)
+		if err == nil {
+			return existing, nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return Result{}, err
+		}
 	}
 
 	reader := opts.Git
@@ -87,8 +91,13 @@ func run(ctx context.Context, opts Options, files fileOps) (Result, error) {
 	if err = files.mkdirAll(opts.Root, directoryMode); err != nil {
 		return Result{}, fmt.Errorf("bootstrap %s: create configuration directory: %w", path, err)
 	}
-	if err = publish(ctx, path, encoded.Bytes(), files); err != nil {
-		if errors.Is(err, os.ErrExist) {
+	if opts.Force {
+		err = replace(ctx, path, encoded.Bytes(), files)
+	} else {
+		err = publish(ctx, path, encoded.Bytes(), files)
+	}
+	if err != nil {
+		if !opts.Force && errors.Is(err, os.ErrExist) {
 			return load(path, files.readFile)
 		}
 		return Result{}, fmt.Errorf("bootstrap %s: publish configuration: %w", path, err)

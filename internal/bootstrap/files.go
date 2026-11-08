@@ -38,6 +38,7 @@ type fileOps struct {
 	mkdirAll   func(string, os.FileMode) error
 	createTemp func(string, string) (temporaryFile, error)
 	link       func(string, string) error
+	rename     func(string, string) error
 	remove     func(string) error
 }
 
@@ -45,8 +46,27 @@ func localFiles() fileOps {
 	return fileOps{
 		readFile: os.ReadFile, mkdirAll: os.MkdirAll,
 		createTemp: func(dir, pattern string) (temporaryFile, error) { return os.CreateTemp(dir, pattern) },
-		link:       os.Link, remove: os.Remove,
+		link:       os.Link, rename: os.Rename, remove: os.Remove,
 	}
+}
+
+// replace publishes a complete file atomically for an explicit reset.
+func replace(ctx context.Context, path string, data []byte, files fileOps) error {
+	temp, err := files.createTemp(filepath.Dir(path), ".kuketeams-*")
+	if err != nil {
+		return fmt.Errorf("create temporary file: %w", err)
+	}
+	defer func() { _ = files.remove(temp.Name()) }()
+	if err = writeAndClose(temp, data); err != nil {
+		return err
+	}
+	if err = ctx.Err(); err != nil {
+		return err
+	}
+	if err = files.rename(temp.Name(), path); err != nil {
+		return fmt.Errorf("replace completed file: %w", err)
+	}
+	return nil
 }
 
 // publish writes and closes a 0600 temporary file in the destination directory,

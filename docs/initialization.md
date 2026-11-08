@@ -1,6 +1,11 @@
 # Applying the kukeon operator team
 
-`kuketeams init` preserves or bootstraps `~/.kuke/kuketeams.yaml`, fetches only
+`kuketeams init` creates `~/.kuke/kuketeams.yaml` only when it does not exist. If
+the file already exists, it exits with guidance to use `--force` and does not
+contact the daemon. `kuketeams init --force` atomically replaces the global
+configuration with the initial document and applies the initial operator team.
+It replaces the accepted `kukeon` registration after successful application.
+The command fetches only
 sources used by selected role/harness definitions into temporary Git checkouts,
 and composes the kukeon team's blueprints/configs. Git must be installed and able
 to read those sources without a terminal prompt. `branch`, `tag`, and `commit`
@@ -121,13 +126,8 @@ Secret rotation is not an intended init action; rotate explicitly with kuke.
 The accepted authored declaration is saved atomically at
 `~/.kuke/kuketeam.d/kukeon.yaml`. It retains explicit selections and omitted/empty
 list semantics, with no resolved credentials or duplicated effective defaults.
-Later init runs read this declaration and resolve its inherited defaults from the
-current global configuration. An invalid existing registration fails preflight
-rather than resetting authored configuration.
-
-A pre-existing valid `kukeon.yaml` is authoritative: init reapplies its accepted
-selections rather than replacing them with the initial operator declaration.
-Invalid or mismatched registrations fail before application. Reserve `kukeon`
+`init --force` uses the initial operator declaration regardless of an existing
+`kukeon.yaml`. Reserve `kukeon`
 for this operator; if that name already belongs to another declaration, preserve
 and inspect that declaration before running init. Init does not discover or
 migrate legacy registrations. A pre-existing `root.yaml`, its resources, and its
@@ -142,9 +142,9 @@ Registration follows full blueprint/config success only. A secret failure, RPC
 failure, total resource failure, partial apply, prune failure, or incomplete
 response returns nonzero and leaves any prior TeamEntry unchanged. First-time
 failure creates no registration. Successful resources and created secrets are
-not rolled back: rerun init after fixing the prerequisite to converge the same
+not rolled back: rerun `init --force` after fixing the prerequisite to converge the same
 kukeon identity. A registration write failure after application is explicitly
-reported as such and can also be recovered by rerunning init. A previous entry
+reported as such and can also be recovered by rerunning `init --force`. A previous entry
 records the last accepted declaration, not a claim that the latest failed update
 succeeded.
 

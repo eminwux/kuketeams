@@ -42,7 +42,7 @@ func setupRun(t *testing.T) Options {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return Options{Root: root, Home: filepath.Dir(root), Sources: sourceFS(), Client: newFake()}
+	return Options{Root: root, Home: filepath.Dir(root), Sources: sourceFS(), Client: newFake(), Force: true}
 }
 
 type emptyGit struct{}
@@ -51,7 +51,37 @@ func (emptyGit) Lookup(context.Context, string, bool) (string, error) {
 	return "", bootstrap.ErrMissing
 }
 
-func TestRunPreservesAuthoredConfigurationAndEntry(t *testing.T) {
+func TestRunExistingConfigurationRequiresForce(t *testing.T) {
+	opts := setupRun(t)
+	opts.Force = false
+	path := filepath.Join(opts.Root, "kuketeams.yaml")
+	before, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = Run(t.Context(), opts); err == nil || !strings.Contains(err.Error(), "--force") {
+		t.Fatalf("expected existing configuration guidance, got %v", err)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || !bytes.Equal(before, after) || opts.Client.(*fakeClient).applies != 0 {
+		t.Fatal("existing configuration or daemon changed")
+	}
+}
+
+func TestRunCreatesMissingConfiguration(t *testing.T) {
+	opts := setupRun(t)
+	path := filepath.Join(opts.Root, "kuketeams.yaml")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	opts.Force = false
+	result, err := Run(t.Context(), opts)
+	if err != nil || !result.Bootstrap.Created || result.Resources != 4 {
+		t.Fatalf("result=%+v err=%v", result, err)
+	}
+}
+
+func TestRunForceResetsConfigurationAndEntry(t *testing.T) {
 	opts := setupRun(t)
 	path := filepath.Join(opts.Root, "kuketeams.yaml")
 	original, err := os.ReadFile(path)
@@ -71,8 +101,8 @@ func TestRunPreservesAuthoredConfigurationAndEntry(t *testing.T) {
 			t.Fatalf("result=%+v", result)
 		}
 		after, readErr := os.ReadFile(path)
-		if readErr != nil || !bytes.Equal(after, original) {
-			t.Fatal("configuration overwritten")
+		if readErr != nil || bytes.Equal(after, original) || bytes.Contains(after, []byte("authored comment")) {
+			t.Fatal("configuration not reset")
 		}
 		entryBytes, readErr := os.ReadFile(result.EntryPath)
 		if readErr != nil {
@@ -153,7 +183,7 @@ func TestRegistrationOnlyChangesAfterFullSuccess(t *testing.T) {
 	}
 }
 
-func TestRunUsesExistingOperatorDeclaration(t *testing.T) {
+func TestRunForceResetsExistingOperatorDeclaration(t *testing.T) {
 	opts := setupRun(t)
 	team := config.Operator()
 	team.Spec.Roles = []config.Role{
@@ -177,20 +207,20 @@ func TestRunUsesExistingOperatorDeclaration(t *testing.T) {
 	if _, err = Run(t.Context(), opts); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(opts.Client.(*fakeClient).raw), "kukeon-custom-codex") {
-		t.Fatal("authored operator selection reset")
+	if strings.Contains(string(opts.Client.(*fakeClient).raw), "kukeon-custom-codex") {
+		t.Fatal("authored operator selection retained")
 	}
 	after, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
 	accepted, err := config.DecodeEntry(bytes.NewReader(after))
-	if err != nil || accepted.Spec.Roles[0].Name != "custom" || accepted.Spec.Roles[0].InitialPath != "/opt/custom" {
-		t.Fatal("entry did not retain declaration")
+	if err != nil || accepted.Spec.Roles[0].Name != "operator" {
+		t.Fatal("entry was not reset")
 	}
 }
 
-func TestInvalidExistingEntryFailsBeforeApplication(t *testing.T) {
+func TestForceReplacesInvalidExistingEntry(t *testing.T) {
 	for _, raw := range []string{"kind: Wrong\n", "apiVersion: kuketeams.io/v1\nkind: TeamEntry\nmetadata:\n  name: different\nspec: {}\n"} {
 		opts := setupRun(t)
 		path := filepath.Join(opts.Root, "kuketeam.d", "kukeon.yaml")
@@ -200,11 +230,11 @@ func TestInvalidExistingEntryFailsBeforeApplication(t *testing.T) {
 		if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := Run(t.Context(), opts); err == nil {
-			t.Fatal("accepted invalid operator entry")
+		if _, err := Run(t.Context(), opts); err != nil {
+			t.Fatal(err)
 		}
-		if opts.Client.(*fakeClient).applies != 0 {
-			t.Fatal("applied before entry validation")
+		if opts.Client.(*fakeClient).applies != 1 {
+			t.Fatal("initial operator was not applied")
 		}
 	}
 }

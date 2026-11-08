@@ -95,25 +95,34 @@ func TestInitExecutable(t *testing.T) {
 	home := t.TempDir()
 	// Run outside HOME and outside a project checkout; PATH isolates missing Git.
 	cwd := t.TempDir()
-	for _, invalid := range []bool{false, false, true} {
+	for _, tc := range []struct {
+		invalid bool
+		force   bool
+		want    string
+	}{
+		{want: "materialize source"},
+		{want: "use --force"},
+		{invalid: true, want: "use --force"},
+		{force: true, want: "materialize source"},
+	} {
 		path := filepath.Join(home, ".kuke", "kuketeams.yaml")
-		if invalid {
+		if tc.invalid {
 			if err := os.WriteFile(path, []byte("kind: Wrong\n"), 0o600); err != nil {
 				t.Fatal(err)
 			}
 		}
-		command := exec.CommandContext(t.Context(), binary, "init")
+		args := []string{"init"}
+		if tc.force {
+			args = append(args, "--force")
+		}
+		command := exec.CommandContext(t.Context(), binary, args...)
 		command.Dir = cwd
 		command.Env = []string{"HOME=" + home, "USERPROFILE=" + home, "PATH=" + home}
 		var stdout, stderr bytes.Buffer
 		command.Stdout, command.Stderr = &stdout, &stderr
 		err := command.Run()
-		want := "materialize source"
-		if invalid {
-			want = path
-		}
-		if err == nil || !strings.Contains(stderr.String(), want) || stdout.Len() != 0 {
-			t.Fatalf("invalid=%v error=%v stdout=%q stderr=%q", invalid, err, &stdout, &stderr)
+		if err == nil || !strings.Contains(stderr.String(), tc.want) || stdout.Len() != 0 {
+			t.Fatalf("case=%+v error=%v stdout=%q stderr=%q", tc, err, &stdout, &stderr)
 		}
 		if _, err = os.Stat(filepath.Join(home, ".kuke", "kuketeam.d", "kukeon.yaml")); !os.IsNotExist(err) {
 			t.Fatal("registered before successful application")

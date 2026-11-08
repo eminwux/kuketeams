@@ -157,7 +157,9 @@ blueprints/configs through kukeond. Registration is published only after every
 resource succeeds. No cells are started. Edit the accepted entry to customize
 the operator; configure global defaults separately for other teams. See
 [initialization](docs/initialization.md) for examples and existing-registration
-handling. `init --build` is rejected until build support is implemented.
+handling. An existing configuration stops `init`; use `init --force` to replace it
+and apply the initial operator declaration. `init --build` is rejected until build
+support is implemented.
 
 The endpoint follows kuke's precedence: `init --host unix:///path/to/kukeond.sock`,
 `KUKEON_HOST`, `ClientConfiguration.spec.host` in `~/.kuke/kuke.yaml`, then
@@ -182,13 +184,13 @@ a diagnostic. Malformed Git settings and invalid signing booleans fail without
 publishing configuration. Key and allowed-signers paths are preserved as configured;
 bootstrap does not read keys, check their existence, or sign anything.
 
-Reruns validate and preserve existing configuration byte-for-byte, including
-comments, independent identities, and permissions, without rediscovering Git.
-Invalid YAML, wrong kind/version, and filesystem failures produce path-qualified
-errors and a nonzero exit. Newly created directories use `0700` and the file uses
-`0600`. Existing directory permissions are preserved. Publication hard-links a
-completed temporary file in the same directory to the final name, atomically
-refusing to overwrite a competing creator; the winner is then read and validated.
+Reruns stop when configuration already exists, without changing it or contacting
+the daemon. `--force` regenerates the initial configuration and operator entry.
+Filesystem failures produce path-qualified errors and a nonzero exit. Newly
+created directories use `0700` and the file uses `0600`. Existing directory
+permissions are preserved. Initial publication hard-links a completed temporary
+file in the same directory to the final name, atomically refusing to overwrite
+a competing creator; the winner is then read and validated.
 This requires a local filesystem supporting hard links; unsupported publication
 fails safely and removes temporary files. No configuration-path flag or environment
 override is provided.

@@ -33,10 +33,11 @@ func newInitCommand(
 	run func(context.Context, initialize.Options) (initialize.Result, error),
 ) *cobra.Command {
 	var host, configuration string
+	var force bool
 	cmd := &cobra.Command{
 		Use:   "init",
 		Short: "Apply and register the kukeon operator team",
-		Long:  "Initialize ~/.kuke/kuketeams.yaml, fetch selected definitions, and apply the kukeon operator team to kukeond.\nExisting valid configuration is preserved. Registration is saved only after all resources succeed.\nNo cells are created or started. The daemon and parent runtime scope must already exist.",
+		Long:  "Initialize ~/.kuke/kuketeams.yaml, fetch selected definitions, and apply the kukeon operator team to kukeond.\nAn existing configuration stops init; --force replaces it and reapplies the initial operator declaration.\nNo cells are created or started. The daemon and parent runtime scope must already exist.",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			home, err := homeDir()
@@ -50,6 +51,7 @@ func newInitCommand(
 					Home:          home,
 					Host:          host,
 					Configuration: configuration,
+					Force:         force,
 				},
 			)
 			for _, diagnostic := range result.Bootstrap.Diagnostics {
@@ -60,9 +62,9 @@ func newInitCommand(
 			if runErr != nil {
 				return runErr
 			}
-			status := "Existing valid configuration"
-			if result.Bootstrap.Created {
-				status = "Created configuration"
+			status := "Created configuration"
+			if force {
+				status = "Reset configuration"
 			}
 			_, err = fmt.Fprintf(
 				cmd.OutOrStdout(),
@@ -75,6 +77,7 @@ func newInitCommand(
 		},
 	}
 	cmd.Flags().StringVar(&host, "host", "", "kukeond Unix endpoint (overrides KUKEON_HOST and kuke.yaml)")
+	cmd.Flags().BoolVar(&force, "force", false, "Replace existing configuration and apply the initial operator declaration")
 	cmd.Flags().
 		StringVar(&configuration, "configuration", "", "kuke ClientConfiguration path (default KUKE_CONFIGURATION or ~/.kuke/kuke.yaml)")
 	return cmd

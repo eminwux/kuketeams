@@ -647,7 +647,33 @@ func TestLaunchPreservesSourceRevision(t *testing.T) {
 	}
 }
 
-func TestResourceNamesIsolateTeamsAndSelections(t *testing.T) {
+func TestReviewerConfigNamePreservesExistingState(t *testing.T) {
+	cfg, opts := fixture(t)
+	team := selectedTeam(cfg)
+	team.Metadata.Name = "esp32"
+	cfg.Spec.Defaults.Roles[0].Name = "pr-reviewer"
+	result, err := compose.Compose(cfg, team, opts)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Pairs) != 1 {
+		t.Fatalf("expected one pair, got %d", len(result.Pairs))
+	}
+	pair := result.Pairs[0]
+	if pair.Config.Metadata.Name != "esp32-pr-reviewer-codex" {
+		t.Fatalf("unexpected cell config name: %q", pair.Config.Metadata.Name)
+	}
+	for _, container := range pair.Blueprint.Spec.Cell.Containers {
+		for _, volume := range container.Volumes {
+			if volume.Source == "esp32-pr-reviewer-codex-84a6981913a0eaf3" {
+				return
+			}
+		}
+	}
+	t.Fatal("PR #37 state-volume identity was not preserved")
+}
+
+func TestReadableResourceNamesAndIsolatedState(t *testing.T) {
 	runtimeID := regexp.MustCompile(`^[A-Za-z0-9]+(?:[._-](?:[A-Za-z0-9]+))*$`)
 	for _, project := range []bool{false, true} {
 		scenario := "role-state"
@@ -668,7 +694,7 @@ func TestResourceNamesIsolateTeamsAndSelections(t *testing.T) {
 					Name: "project", URL: "https://example.test/work", Branch: "topic", ClonePath: "/home/user/work",
 				})
 			}
-			resources, volumes := map[string]string{}, map[string]string{}
+			volumes := map[string]string{}
 			for _, selection := range []struct{ team, role string }{
 				{"root-a", "operator"},
 				{"root", "a-operator"},
@@ -692,10 +718,11 @@ func TestResourceNamesIsolateTeamsAndSelections(t *testing.T) {
 				for _, pair := range result.Pairs {
 					owner := selection.team + "/" + selection.role + "/" + pair.Harness
 					name := pair.Config.Metadata.Name
-					if previous, exists := resources[name]; exists {
-						t.Fatalf("%s and %s collide on resource %q", previous, owner, name)
+					wantName := strings.Join(strings.FieldsFunc(selection.team+"-"+selection.role+"-"+pair.Harness,
+						func(r rune) bool { return r == '-' || r == '.' }), "-")
+					if name != wantName {
+						t.Fatalf("resource name = %q, want %q", name, wantName)
 					}
-					resources[name] = owner
 					if !runtimeID.MatchString(name) {
 						t.Fatalf("invalid runtime resource name %q for %s", name, owner)
 					}

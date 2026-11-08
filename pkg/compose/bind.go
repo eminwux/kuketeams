@@ -62,9 +62,9 @@ func bind(
 			}
 			if mount.Kind == api.VolumeKindVolume && mount.VolumeRef == nil {
 				if mount.Source == role.Metadata.Name+"-"+p.Harness {
-					mount.Source = cc.Metadata.Name
+					mount.Source = stateVolumeName(team, selection.Name, p.Harness)
 				} else {
-					mount.Source = resourceName(team, selection.Name, p.Harness, mount.Source)
+					mount.Source = stateVolumeName(team, selection.Name, p.Harness, mount.Source)
 				}
 				mount.Ensure = true
 			}

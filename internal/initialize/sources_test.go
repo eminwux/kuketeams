@@ -115,3 +115,54 @@ func TestMaterializeFailureDoesNotEchoRemoteCredentials(t *testing.T) {
 		t.Fatalf("error=%v", err)
 	}
 }
+
+// Every listed harness is selected unless the role names one, so a harness
+// source no role uses is still fetched (#40), while a narrowed-out one is not.
+func TestMaterializeSelectedHarnessSources(t *testing.T) {
+	t.Setenv("GIT_CONFIG_GLOBAL", os.DevNull)
+	t.Setenv("GIT_CONFIG_NOSYSTEM", "1")
+	repo := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "--initial-branch=main"},
+		{
+			"-c", "commit.gpgsign=false", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.test",
+			"commit", "--allow-empty", "-m", "fixture",
+		},
+	} {
+		if raw, err := exec.CommandContext(t.Context(), "git", append([]string{"-C", repo}, args...)...).
+			CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v %s", args, err, raw)
+		}
+	}
+	d := config.Defaults{
+		Sources: []config.Source{
+			{Name: "roles", URL: repo, Branch: "main"},
+			{Name: "harnesses", URL: repo, Branch: "main"},
+			{Name: "unused", URL: "/not/a/repo", Branch: "main"},
+		},
+		Roles: []config.Role{{Name: "dev", Source: "roles"}},
+		Harnesses: []config.Harness{
+			{Name: "claude", Source: "harnesses"},
+			{Name: "codex", Source: "harnesses"},
+		},
+	}
+	sources, cleanup, err := materialize(t.Context(), d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanup()
+	if sources["roles"] == nil || sources["harnesses"] == nil || sources["unused"] != nil {
+		t.Fatalf("materialized %v", sources)
+	}
+	// A role narrowed to one harness does not pull other harness sources.
+	d.Roles[0].Harness = "claude"
+	d.Harnesses[1].Source = "unused"
+	narrowed, cleanupNarrowed, err := materialize(t.Context(), d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer cleanupNarrowed()
+	if narrowed["harnesses"] == nil || narrowed["unused"] != nil {
+		t.Fatalf("narrowed materialized %v", narrowed)
+	}
+}

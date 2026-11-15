@@ -115,13 +115,13 @@ func checkNode(n *yaml.Node, typ reflect.Type, field string, active map[*yaml.No
 				return fmt.Errorf("%s: duplicate key (line %d)", next, key.Line)
 			}
 			seen[name] = true
-			if strings.HasPrefix(field, "spec.harnesses[") && name == "default" {
+			childType, ok := fields[name]
+			if !ok && name == "default" && strings.Contains(field, "harnesses[") {
 				return fmt.Errorf(
-					"%s: supported only in TeamsConfig defaults; omit default to select this harness",
-					next,
+					"%s: removed; every listed harness is selected, use roles[].harness to narrow (line %d)",
+					next, key.Line,
 				)
 			}
-			childType, ok := fields[name]
 			if !ok {
 				return fmt.Errorf("%s: unknown field (line %d)", next, key.Line)
 			}

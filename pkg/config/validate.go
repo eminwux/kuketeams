@@ -143,15 +143,14 @@ func validateSources(list []Source, sources map[string]bool) error {
 }
 
 func validateDefaults(d *Defaults) error {
-	return validateSelections(d, false)
+	return validateSelections(d)
 }
 
-func validateSelections(d *Defaults, explicitHarnesses bool) error {
+func validateSelections(d *Defaults) error {
 	sources, roles, harnesses := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	if err := validateSources(d.Sources, sources); err != nil {
 		return err
 	}
-	defaultHarness := explicitHarnesses
 	for i, h := range d.Harnesses {
 		field := fmt.Sprintf("spec.defaults.harnesses[%d]", i)
 		if err := unique(field+".name", h.Name, harnesses); err != nil {
@@ -160,10 +159,6 @@ func validateSelections(d *Defaults, explicitHarnesses bool) error {
 		if err := selection(field, h.Source, h.Path, sources); err != nil {
 			return err
 		}
-		if h.Default && defaultHarness {
-			return fmt.Errorf("%s.default: at most one default harness is permitted in TeamsConfig", field)
-		}
-		defaultHarness = defaultHarness || h.Default
 	}
 	for i, role := range d.Roles {
 		field := fmt.Sprintf("spec.defaults.roles[%d]", i)
@@ -176,12 +171,8 @@ func validateSelections(d *Defaults, explicitHarnesses bool) error {
 		if err := validateInitialPath(field+".initialPath", role.InitialPath); err != nil {
 			return err
 		}
-		if role.Harness != "" {
-			if !harnesses[role.Harness] {
-				return fmt.Errorf("%s.harness: unknown harness %q", field, role.Harness)
-			}
-		} else if !defaultHarness {
-			return fmt.Errorf("%s.harness: requires an explicit harness or at least one default harness", field)
+		if role.Harness != "" && !harnesses[role.Harness] {
+			return fmt.Errorf("%s.harness: unknown harness %q", field, role.Harness)
 		}
 		if role.Needs != nil {
 			for j, image := range role.Needs.Image {

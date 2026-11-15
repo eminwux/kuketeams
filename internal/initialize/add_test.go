@@ -57,7 +57,6 @@ func setupAddRun(t *testing.T) Options {
 		Spec:       config.Spec{Defaults: config.Operator().Spec},
 	}
 	cfg.Spec.Defaults.Harnesses = cfg.Spec.Defaults.Harnesses[:1]
-	cfg.Spec.Defaults.Harnesses[0].Default = true
 	var raw bytes.Buffer
 	if err := config.Encode(&raw, cfg); err != nil {
 		t.Fatal(err)
@@ -500,7 +499,7 @@ func TestAddReusesScopedSecretsAndNewDefaults(t *testing.T) {
 	changeAddConfig(t, opts, func(cfg *config.TeamsConfig) {
 		cfg.Spec.Defaults.Roles[0].Name = "updated"
 		cfg.Spec.Defaults.Harnesses = []config.Harness{
-			{Name: "opencode", Source: "kuketeams", Path: "harnesses/opencode", Default: true},
+			{Name: "opencode", Source: "kuketeams", Path: "harnesses/opencode"},
 		}
 		cfg.Spec.Secrets = []config.SecretBinding{binding(&config.SecretSource{File: "/nonexistent/host-token"})}
 	})
@@ -685,7 +684,7 @@ func configureAddFailure(t *testing.T, opts *AddOptions, fake *fakeClient, mode 
 	case "secret-lookup", "secret-missing":
 		changeAddConfig(t, *opts, func(cfg *config.TeamsConfig) {
 			cfg.Spec.Defaults.Harnesses = []config.Harness{
-				{Name: "opencode", Source: "kuketeams", Path: "harnesses/opencode", Default: true},
+				{Name: "opencode", Source: "kuketeams", Path: "harnesses/opencode"},
 			}
 			cfg.Spec.Secrets = []config.SecretBinding{binding(nil)}
 		})

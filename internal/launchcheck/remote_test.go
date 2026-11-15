@@ -293,7 +293,7 @@ func (d *remoteDriver) initialize() {
 				},
 			},
 			Roles:     []config.Role{{Name: "operator", Source: "kuketeams", Path: "roles/operator"}},
-			Harnesses: []config.Harness{{Name: "codex", Source: "kuketeams", Path: "harnesses/codex", Default: true}},
+			Harnesses: []config.Harness{{Name: "codex", Source: "kuketeams", Path: "harnesses/codex"}},
 		}},
 	}
 	if err := os.MkdirAll(filepath.Join(d.home, ".kuke"), 0o700); err != nil {
@@ -301,7 +301,6 @@ func (d *remoteDriver) initialize() {
 	}
 	declaration := config.Operator()
 	declaration.Spec = cfg.Spec.Defaults
-	declaration.Spec.Harnesses[0].Default = false
 	cfg.Spec.Defaults = config.Defaults{}
 	d.writeYAML(filepath.Join(d.home, ".kuke", "kuketeams.yaml"), cfg)
 	preparedEntry, entryErr := config.Entry(declaration)

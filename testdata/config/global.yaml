@@ -31,7 +31,6 @@ spec:
       - name: codex
         source: kuketeams
         path: harnesses/codex
-        default: true
       - name: claude
         source: kuketeams
         path: harnesses/claude

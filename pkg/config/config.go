@@ -101,10 +101,15 @@ type Needs struct {
 }
 
 type Harness struct {
-	Name    string `yaml:"name"`
-	Source  string `yaml:"source"`
-	Path    string `yaml:"path"`
-	Default bool   `yaml:"default,omitempty"`
+	Name   string `yaml:"name"`
+	Source string `yaml:"source"`
+	Path   string `yaml:"path"`
+}
+
+// Selects reports whether a role composes with a harness from its effective
+// list: every listed harness unless the role names one explicitly.
+func (r Role) Selects(h Harness) bool {
+	return r.Harness == "" || r.Harness == h.Name
 }
 
 // SecretBinding is a declaration, never a credential value. Name is the required

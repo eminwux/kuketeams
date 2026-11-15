@@ -135,8 +135,14 @@ func TestSelectedHarnessesAndBindings(t *testing.T) {
 		t.Fatal("did not render selected defaults")
 	}
 	claude, router := result.Pairs[1], result.Pairs[2]
-	if len(claude.Seeds) != 1 || claude.Seeds[0].Path != "/operator/teams/root/claude.json" {
-		t.Fatal("missing seed declaration")
+	claudeWork := claude.Blueprint.Spec.Cell.Containers[0]
+	if len(claude.Seeds) != 0 || !strings.Contains(claudeWork.Tty.OnInit[0].Script, `"hasCompletedOnboarding": true`) {
+		t.Fatal("claude onboarding state must be seeded in-cell")
+	}
+	for _, mount := range claudeWork.Volumes {
+		if strings.Contains(mount.Source, "claude.json") {
+			t.Fatal("claude onboarding state must not require a host mount")
+		}
 	}
 	if len(router.Secrets) != 1 || router.Secrets[0].Reference.Name != "router-account" ||
 		router.Secrets[0].Source != nil {
@@ -307,17 +313,24 @@ func TestActionableFailures(t *testing.T) {
 			allHarnesses(c)
 			c.Spec.Defaults.Roles[0].Harness = "opencode"
 		}},
+		{"seed", "TeamDir", func(c *config.TeamsConfig, o *compose.Options, s fstest.MapFS) {
+			allHarnesses(c)
+			c.Spec.Defaults.Roles[0].Harness = "claude"
+			s["harnesses/claude/harness.yaml"].Data = bytes.ReplaceAll(
+				s["harnesses/claude/harness.yaml"].Data,
+				[]byte("  skillPath:"),
+				[]byte(
+					"  seeds:\n    - path: ${TEAM_ROOT}/seed.json\n      mode: 0o644\n      content: \"{}\"\n  skillPath:",
+				),
+			)
+			o.TeamDir = ""
+		}},
 		{"mount", "unsupported mount", func(_ *config.TeamsConfig, _ *compose.Options, s fstest.MapFS) {
 			s["roles/operator/role.yaml"].Data = bytes.ReplaceAll(
 				s["roles/operator/role.yaml"].Data,
 				[]byte("  needs:"),
 				[]byte("  needs:\n    mounts: [unknown]"),
 			)
-		}},
-		{"seed", "TeamDir", func(c *config.TeamsConfig, o *compose.Options, _ fstest.MapFS) {
-			allHarnesses(c)
-			c.Spec.Defaults.Roles[0].Harness = "claude"
-			o.TeamDir = ""
 		}},
 	}
 	for _, tc := range cases {

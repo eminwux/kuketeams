@@ -12,14 +12,11 @@ spec:
   parameters:
     - name: ANTHROPIC_MODEL
       default: opus
-  mounts:
-    - source: ${TEAM_ROOT}/claude.json
-      target: $HOME/.claude.json.seed
-      readOnly: true
   onInit:
     - script: |
         set -eu
-        [ -f "$HOME/.claude.json" ] || cp "$HOME/.claude.json.seed" "$HOME/.claude.json" 2>/dev/null || echo '{}' > "$HOME/.claude.json"
+        [ -f "$HOME/.claude.json" ] ||
+          printf '{\n  "hasCompletedOnboarding": true,\n  "installMethod": "native"\n}\n' > "$HOME/.claude.json"
 
         make -f /opt/kuketeams/harness/Makefile.start setup
 
@@ -110,14 +107,6 @@ spec:
           exit $?
         fi
   skillPath: $HOME/.claude/skills
-  seeds:
-    - path: ${TEAM_ROOT}/claude.json
-      mode: 0o644
-      content: |
-        {
-          "hasCompletedOnboarding": true,
-          "installMethod": "native"
-        }
   images:
     - name: claude
       build:

@@ -227,7 +227,7 @@ Specialized-role onboarding and remediation remain epic step 5.
 result, err := compose.Compose(cfg, config.Operator(), compose.Options{
     Sources: map[string]fs.FS{"kuketeams": os.DirFS(checkout)},
     Scope:   compose.Scope{Realm: "default", Space: "default", Stack: "default"},
-    TeamDir: "/operator/.kuke/teams/kukeon", // required by Claude's seed declaration
+    TeamDir: "/operator/.kuke/teams/kukeon", // required only by harness seed declarations
 })
 ```
 
@@ -256,7 +256,8 @@ renderer identifiers, and legacy declarations fail with actionable diagnostics.
 - `Secrets`: required identifier, container, explicit destination, runtime
   name/scope, and optional creation-source declaration. No credential bytes.
 - `Seeds`: noncredential harness seed declarations with resolved host paths;
-  composition does not write them. Claude requires an explicit team-state root.
+  composition does not write them. A harness that declares seeds requires an
+  explicit team-state root; the shipped harnesses declare none.
 
 `Result.Entry` is the accepted declaration candidate. `result.MarshalYAML()`
 returns only all blueprints followed by all configs for #13's apply operation.

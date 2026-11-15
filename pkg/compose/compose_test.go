@@ -49,7 +49,6 @@ func fixture(t *testing.T) (*config.TeamsConfig, compose.Options) {
 	}
 	boot.Config.Spec.Defaults = config.Operator().Spec
 	boot.Config.Spec.Defaults.Harnesses = boot.Config.Spec.Defaults.Harnesses[:1]
-	boot.Config.Spec.Defaults.Harnesses[0].Default = true
 	return boot.Config, compose.Options{
 		Sources: map[string]fs.FS{"kuketeams": os.DirFS("../..")},
 		TeamDir: "/operator/teams/root",
@@ -101,7 +100,7 @@ func TestRootDefaults(t *testing.T) {
 
 func allHarnesses(cfg *config.TeamsConfig) {
 	cfg.Spec.Defaults.Harnesses = []config.Harness{
-		{Name: "codex", Source: "kuketeams", Path: "harnesses/codex", Default: true},
+		{Name: "codex", Source: "kuketeams", Path: "harnesses/codex"},
 		{Name: "claude", Source: "kuketeams", Path: "harnesses/claude"},
 		{Name: "opencode", Source: "kuketeams", Path: "harnesses/opencode"},
 	}
@@ -111,9 +110,6 @@ func selectedTeam(cfg *config.TeamsConfig) *config.Team {
 	team := config.Root()
 	if len(cfg.Spec.Defaults.Harnesses) > 1 {
 		team.Spec.Harnesses = slices.Clone(cfg.Spec.Defaults.Harnesses)
-		for i := range team.Spec.Harnesses {
-			team.Spec.Harnesses[i].Default = false
-		}
 	}
 	return team
 }
@@ -912,23 +908,30 @@ func TestFreshOperatorComposition(t *testing.T) {
 	}
 }
 
-func TestInheritedHarnessDefaultAndRoleOverride(t *testing.T) {
+func TestInheritedHarnessListAndRoleOverride(t *testing.T) {
 	cfg, opts := fixture(t)
 	allHarnesses(cfg)
-	// Inheriting the global harness list selects only its single default, even
-	// though other harnesses are declared. Role-level selection can choose Claude.
-	for _, harness := range []string{"", "claude"} {
-		cfg.Spec.Defaults.Roles[0].Harness = harness
+	cfg.Spec.Defaults.Harnesses = cfg.Spec.Defaults.Harnesses[:2] // opencode needs a provider binding
+	// An inherited harness list selects every listed harness, exactly like an
+	// explicit Team list. Role-level selection narrows to one.
+	for _, test := range []struct {
+		harness string
+		want    []string
+	}{
+		{"", []string{"codex", "claude"}},
+		{"claude", []string{"claude"}},
+	} {
+		cfg.Spec.Defaults.Roles[0].Harness = test.harness
 		result, err := compose.Compose(cfg, config.Root(), opts)
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := "codex"
-		if harness != "" {
-			want = harness
+		var got []string
+		for _, pair := range result.Pairs {
+			got = append(got, pair.Harness)
 		}
-		if len(result.Pairs) != 1 || result.Pairs[0].Harness != want {
-			t.Fatalf("inherited selection: %+v", result.Pairs)
+		if !slices.Equal(got, test.want) {
+			t.Fatalf("inherited selection %q: %v", test.harness, got)
 		}
 	}
 }

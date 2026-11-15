@@ -254,11 +254,10 @@ one nonblank `branch`, `tag`, or `commit`. Selectors are literal: `branch: v1.4.
 selects a branch, not a tag. Definition paths use repository-relative slash syntax
 and must stay within the source root; validation checks syntax and references
 without accessing sources or signing-key files. An explicit role harness selects a
-declared harness. Global defaults allow at most one `default: true` harness;
-roles without an explicit selection use it. Explicit Team/TeamEntry harness
-lists select all listed harnesses and cannot contain `default`. Role-level
-`harness` still narrows the selection. `roles[].initialPath` selects an absolute
-in-cell startup directory or `$HOME[/subdirectory]`; omission uses the cell home.
+declared harness. Every effective harness list (global defaults, Team, or
+TeamEntry) selects all listed harnesses; a role's `harness` narrows it to one.
+Harness `default` was removed and is rejected; set `roles[].harness` instead.
+`roles[].initialPath` selects an absolute in-cell startup directory or `$HOME[/subdirectory]`; omission uses the cell home.
 See [composition](docs/composition.md) for inheritance and startup precedence.
 
 ## Pre-commit checks

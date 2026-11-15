@@ -58,7 +58,7 @@ func materializeSources(ctx context.Context, d config.Defaults, project bool) (m
 	for _, role := range d.Roles {
 		needed[role.Source] = true
 		for _, harness := range d.Harnesses {
-			if role.Harness == harness.Name || (role.Harness == "" && harness.Default) {
+			if role.Selects(harness) {
 				needed[harness.Source] = true
 			}
 		}

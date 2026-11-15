@@ -160,7 +160,7 @@ func compositionFor(t *testing.T, harness string, bindings []config.SecretBindin
 			},
 			Roles: []config.Role{{Name: "operator", Source: "kuketeams", Path: "roles/operator"}},
 			Harnesses: []config.Harness{
-				{Name: harness, Source: "kuketeams", Path: "harnesses/" + harness, Default: true},
+				{Name: harness, Source: "kuketeams", Path: "harnesses/" + harness},
 			},
 		}, Secrets: bindings,
 	}}

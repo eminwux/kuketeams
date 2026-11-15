@@ -271,7 +271,7 @@ spec:
       - {name: dev, source: defs, path: dev, initialPath: /home/user/work, harness: claude}
       - {name: pm, source: defs, path: pm, initialPath: $HOME}
     harnesses:
-      - {name: codex, source: defs, path: harnesses/codex, default: true}
+      - {name: codex, source: defs, path: harnesses/codex}
       - {name: claude, source: defs, path: harnesses/claude}
 `))
 	if err != nil {
@@ -310,7 +310,7 @@ spec:
 			t.Fatalf("Team decoding: %v", parseErr)
 		}
 	}
-	// A Team list selects both harnesses without either being a default.
+	// A Team list selects both harnesses for roles without an explicit harness.
 	team.Spec.Harnesses = []config.Harness{
 		{Name: "codex", Source: "defs", Path: "codex"},
 		{Name: "claude", Source: "defs", Path: "claude"},
@@ -324,16 +324,23 @@ spec:
 			t.Fatalf("accepted invalid path %q: %v", value, err)
 		}
 	}
-	for _, kind := range []string{"Team", "TeamEntry"} {
+	// The removed harness default is rejected everywhere with migration guidance.
+	for _, kind := range []string{"TeamsConfig", "Team", "TeamEntry"} {
 		for _, value := range []string{"true", "false"} {
-			raw := "apiVersion: kuketeams.io/v1\nkind: " + kind + "\nmetadata: {name: test}\nspec:\n  harnesses: [{name: codex, source: defs, path: codex, default: " + value + "}]\n"
-			if kind == "Team" {
+			harnesses := "  harnesses: [{name: codex, source: defs, path: codex, default: " + value + "}]\n"
+			raw := "apiVersion: kuketeams.io/v1\nkind: " + kind + "\nmetadata: {name: test}\nspec:\n" + harnesses
+			switch kind {
+			case "TeamsConfig":
+				raw = "apiVersion: kuketeams.io/v1\nkind: TeamsConfig\nspec:\n  defaults:\n  " + harnesses
+				_, err = config.Decode(strings.NewReader(raw))
+			case "Team":
 				_, err = config.DecodeTeam(strings.NewReader(raw))
-			} else {
+			default:
 				_, err = config.DecodeEntry(strings.NewReader(raw))
 			}
-			if err == nil || !strings.Contains(err.Error(), "supported only in TeamsConfig") {
-				t.Fatalf("accepted team default: %v", err)
+			if err == nil || !strings.Contains(err.Error(), "harnesses[0].default: removed") ||
+				!strings.Contains(err.Error(), "roles[].harness") {
+				t.Fatalf("%s accepted harness default: %v", kind, err)
 			}
 		}
 	}

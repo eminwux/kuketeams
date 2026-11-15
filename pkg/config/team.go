@@ -18,7 +18,6 @@ package config
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"slices"
 )
@@ -65,14 +64,6 @@ func Resolve(cfg *TeamsConfig, team *Team) (Defaults, error) {
 	if team == nil || team.APIVersion != APIVersion || team.Kind != KindTeam || !ValidName(team.Metadata.Name) {
 		return Defaults{}, errors.New("team: require kuketeams.io/v1 Team and a valid metadata.name")
 	}
-	for i, h := range team.Spec.Harnesses {
-		if h.Default {
-			return Defaults{}, fmt.Errorf(
-				"spec.harnesses[%d].default: supported only in TeamsConfig defaults; omit default to select this harness",
-				i,
-			)
-		}
-	}
 	d := team.Spec
 	if d.Sources == nil {
 		d.Sources = cfg.Spec.Defaults.Sources
@@ -96,7 +87,7 @@ func Resolve(cfg *TeamsConfig, team *Team) (Defaults, error) {
 		}
 		d.Sources = append(slices.Clone(d.Sources), *team.ProjectSource)
 	}
-	return d, validateSelections(&d, team.Spec.Harnesses != nil)
+	return d, validateSelections(&d)
 }
 
 // DecodeTeamDeclaration decodes a strict Team document before caller-supplied

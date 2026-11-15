@@ -202,21 +202,8 @@ func TestValidate(t *testing.T) {
 			func(c *config.TeamsConfig) { c.Spec.Defaults.Roles[0].Harness = " " },
 			"roles[0].harness:",
 		},
-		{
-			"no default",
-			func(c *config.TeamsConfig) { c.Spec.Defaults.Harnesses[0].Default = false },
-			"roles[0].harness:",
-		},
-		{"no harnesses", func(c *config.TeamsConfig) { c.Spec.Defaults.Harnesses = nil }, "roles[0].harness:"},
-		{"explicit nondefault", func(c *config.TeamsConfig) {
-			c.Spec.Defaults.Harnesses[0].Default = false
-			c.Spec.Defaults.Roles[0].Harness = "claude"
-		}, ""},
-		{
-			"multiple defaults",
-			func(c *config.TeamsConfig) { c.Spec.Defaults.Harnesses[1].Default = true },
-			"at most one",
-		},
+		{"no harnesses", func(c *config.TeamsConfig) { c.Spec.Defaults.Harnesses = nil }, "roles[1].harness:"},
+		{"explicit harness", func(c *config.TeamsConfig) { c.Spec.Defaults.Roles[0].Harness = "claude" }, ""},
 		{
 			"blank image",
 			func(c *config.TeamsConfig) { c.Spec.Defaults.Roles[0].Needs.Image = []string{"go", " "} },
@@ -224,8 +211,8 @@ func TestValidate(t *testing.T) {
 		},
 		{"empty image list", func(c *config.TeamsConfig) { c.Spec.Defaults.Roles[0].Needs.Image = []string{} }, ""},
 		{
-			"no roles no defaults",
-			func(c *config.TeamsConfig) { c.Spec.Defaults.Roles = nil; c.Spec.Defaults.Harnesses[0].Default = false },
+			"no roles",
+			func(c *config.TeamsConfig) { c.Spec.Defaults.Roles = nil },
 			"",
 		},
 	}
@@ -312,9 +299,9 @@ func TestStrictDecode(t *testing.T) {
 		{"null list", header + "spec: {defaults: {roles: null}}", "spec.defaults.roles: expected list"},
 		{"wrong string type", header + "spec: {git: {signingKey: 123}}", "spec.git.signingKey: expected string"},
 		{
-			"wrong bool type",
+			"removed harness default",
 			header + "spec: {defaults: {harnesses: [{default: 'true'}]}}",
-			"spec.defaults.harnesses[0].default: expected boolean",
+			"spec.defaults.harnesses[0].default: removed",
 		},
 		{"nonstring key", header + "spec: {1: bad}", "spec: expected string field name"},
 		{"complex key", header + "spec: {? [x]: bad}", "spec: expected string field name"},

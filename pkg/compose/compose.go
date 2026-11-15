@@ -102,8 +102,7 @@ func Compose(cfg *config.TeamsConfig, team *config.Team, opts Options) (*Result,
 			return nil, errors.New("role: invalid selection name")
 		}
 		for _, h := range effective.Harnesses {
-			if (role.Harness != "" && role.Harness != h.Name) ||
-				(role.Harness == "" && team.Spec.Harnesses == nil && !h.Default) {
+			if !role.Selects(h) {
 				continue
 			}
 			pair, pairErr := composePair(cfg, team.Metadata.Name, role, h, effective.Sources, opts)

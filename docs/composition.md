@@ -11,12 +11,11 @@ cell. CLI `init` uses this output for [daemon application and registration](init
 `harnesses`. An omitted list inherits the corresponding global default. An
 explicit list replaces it; `[]` selects none. References are checked against the
 effective lists. Each source has exactly one of `branch`, `tag`, or `commit`.
-Each role selects its explicit `harness`. Otherwise it selects the single global
-harness marked `default: true` when inheriting harnesses, or all harnesses in an
-explicit Team/TeamEntry harness list. Only TeamsConfig defaults support `default`;
-multiple defaults fail validation. Explicit team harness declarations omit the
-flag (even `default: false` is rejected). Unselected definitions are not loaded
-or rendered.
+Each role selects its explicit `harness`. Otherwise it selects every harness in
+the effective list, whether inherited from TeamsConfig defaults or declared by a
+Team/TeamEntry. Harness `default` is no longer supported; configurations that
+still set it fail validation with guidance to use `roles[].harness`. Unselected
+definitions are neither fetched, loaded, nor rendered.
 
 ```yaml
 apiVersion: kuketeams.io/v1
@@ -56,8 +55,7 @@ without retaining that input model or inventing redundant image state.
 
 After init, the user can edit `~/.kuke/kuketeams.yaml` to declare reusable
 sources, roles, and harnesses. This is user-authored configuration, not bootstrap
-output. Only Codex is the default; dev explicitly selects Claude and pm uses
-Codex:
+output. Both harnesses are listed; dev narrows to Claude and pm to Codex:
 
 ```yaml
 apiVersion: kuketeams.io/v1
@@ -81,11 +79,11 @@ spec:
         source: agents
         path: pm
         initialPath: $HOME
+        harness: codex
     harnesses:
       - name: codex
         source: kuketeams
         path: harnesses/codex
-        default: true
       - name: claude
         source: kuketeams
         path: harnesses/claude

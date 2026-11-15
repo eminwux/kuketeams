@@ -51,7 +51,6 @@ func fixture(t *testing.T) (*config.TeamsConfig, compose.Options) {
 	boot.Config.Spec.Defaults.Harnesses = boot.Config.Spec.Defaults.Harnesses[:1]
 	return boot.Config, compose.Options{
 		Sources: map[string]fs.FS{"kuketeams": os.DirFS("../..")},
-		TeamDir: "/operator/teams/root",
 	}
 }
 
@@ -136,7 +135,7 @@ func TestSelectedHarnessesAndBindings(t *testing.T) {
 	}
 	claude, router := result.Pairs[1], result.Pairs[2]
 	claudeWork := claude.Blueprint.Spec.Cell.Containers[0]
-	if len(claude.Seeds) != 0 || !strings.Contains(claudeWork.Tty.OnInit[0].Script, `"hasCompletedOnboarding": true`) {
+	if !strings.Contains(claudeWork.Tty.OnInit[0].Script, `"hasCompletedOnboarding": true`) {
 		t.Fatal("claude onboarding state must be seeded in-cell")
 	}
 	for _, mount := range claudeWork.Volumes {
@@ -161,11 +160,10 @@ func TestSelectedHarnessesAndBindings(t *testing.T) {
 	}
 	cfg.Spec.Secrets = nil
 	cfg.Spec.Defaults.Roles[0].Harness = "codex"
-	// The explicit override must not require OpenCode auth, Claude seeds, or even
-	// load the unselected definitions.
+	// The explicit override must not require OpenCode auth or even load the
+	// unselected definitions.
 	cfg.Spec.Defaults.Harnesses[1].Path = "absent/claude"
 	cfg.Spec.Defaults.Harnesses[2].Path = "absent/opencode"
-	opts.TeamDir = ""
 	result, err = compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err != nil || len(result.Pairs) != 1 {
 		t.Fatalf("override: %v", err)
@@ -314,17 +312,16 @@ func TestActionableFailures(t *testing.T) {
 			c.Spec.Defaults.Roles[0].Harness = "opencode"
 			o.Secrets = []config.SecretBinding{{Name: "openrouter-api-key", EnvName: "1BAD"}}
 		}},
-		{"seed", "TeamDir", func(c *config.TeamsConfig, o *compose.Options, s fstest.MapFS) {
+		{"seed", "field seeds not found", func(c *config.TeamsConfig, _ *compose.Options, s fstest.MapFS) {
 			allHarnesses(c)
 			c.Spec.Defaults.Roles[0].Harness = "claude"
 			s["harnesses/claude/harness.yaml"].Data = bytes.ReplaceAll(
 				s["harnesses/claude/harness.yaml"].Data,
 				[]byte("  skillPath:"),
 				[]byte(
-					"  seeds:\n    - path: ${TEAM_ROOT}/seed.json\n      mode: 0o644\n      content: \"{}\"\n  skillPath:",
+					"  seeds:\n    - path: /seed.json\n      mode: 0o644\n      content: \"{}\"\n  skillPath:",
 				),
 			)
-			o.TeamDir = ""
 		}},
 		{"mount", "unsupported mount", func(_ *config.TeamsConfig, _ *compose.Options, s fstest.MapFS) {
 			s["roles/operator/role.yaml"].Data = bytes.ReplaceAll(

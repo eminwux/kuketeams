@@ -118,7 +118,7 @@ func runTeam(
 		defer cleanup()
 	}
 	composed, err := compose.Compose(cfg, team, compose.Options{
-		Sources: sources, HomeDir: opts.Home, TeamDir: filepath.Join(opts.Root, "teams", name),
+		Sources: sources, HomeDir: opts.Home,
 		Secrets: recorded,
 	})
 	if err != nil {

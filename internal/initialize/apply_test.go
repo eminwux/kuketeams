@@ -167,7 +167,7 @@ func compositionFor(t *testing.T, harness string, bindings []config.SecretBindin
 	result, err := compose.Compose(
 		cfg,
 		team,
-		compose.Options{Sources: sourceFS(), TeamDir: "/operator/.kuke/teams/root"},
+		compose.Options{Sources: sourceFS()},
 	)
 	if err != nil {
 		t.Fatal(err)

@@ -48,8 +48,9 @@ inherited roles/harnesses retain their repositories. Any existing source named
 references before adding the team. Duplicate clone destinations also fail rather
 than replacing another checkout.
 
-The accepted TeamEntry stores an additive top-level `projectSource` and the
-original omitted/explicit `spec` selections:
+The accepted TeamEntry stores an additive top-level `projectSource`, the secret
+bindings its selected pairs use (see [Secrets](#secrets)), and the original
+omitted/explicit `spec` selections:
 
 ```yaml
 apiVersion: kuketeams.io/v1
@@ -61,6 +62,10 @@ projectSource:
   url: git@github.com:eminwux/kukeon.git
   branch: main # Example only: actual remote HEAD is discovered.
   clonePath: /home/user/kukeon-dev
+secrets: # Generated when a selected role needs gh-token; edits are kept.
+  - name: gh-token
+    secretRef: { name: gh-token, realm: default }
+    envName: GH_TOKEN
 spec: {}
 ```
 
@@ -199,10 +204,23 @@ cell cannot clone it. Consult the selected role/harness and
 [composition's binding contract](composition.md#runtime-repository-and-parameter-bindings)
 before explicitly launching with kuke.
 
+## Secrets
+
+Roles declare only requirement names. Add binds each required secret for the
+selected role/harness pairs and records the bindings in the TeamEntry: a binding
+already recorded there wins, then a global `spec.secrets` binding, then a
+generated default (same-named secret in realm `default`, env var upper-snake
+cased: `gh-token` → `GH_TOKEN`). No global configuration is needed. If a bound
+runtime secret does not exist and has no `source`, add still applies and
+registers the team, exits 0, and prints the `kuke create secret …` command for
+each missing one; create them before launching cells. See
+[composition's secret declarations](composition.md#secret-declarations) for
+overrides and [initialization](initialization.md) for creation sources.
+
 ## Registration and recovery
 
 Before daemon mutation, add validates source references, selected definitions,
-images, required secrets/scopes, and stages a complete `0600` entry beside
+images, required secret bindings/scopes, and stages a complete `0600` entry beside
 `~/.kuke/kuketeam.d/<name>.yaml`. It calls `ApplyDocumentsForTeam` with the named
 team's stable ownership identity and publishes registration by atomic rename only
 after full application success. Repeated add converges those same named resources

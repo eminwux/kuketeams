@@ -309,9 +309,10 @@ func TestActionableFailures(t *testing.T) {
 		{"unknown-parameter", "unsupported parameter", func(c *config.TeamsConfig, _ *compose.Options, _ fstest.MapFS) {
 			c.Spec.Parameters = map[string]string{"WRONG": "value"}
 		}},
-		{"secret", "missing structural binding", func(c *config.TeamsConfig, _ *compose.Options, _ fstest.MapFS) {
+		{"secret", "secrets[0]", func(c *config.TeamsConfig, o *compose.Options, _ fstest.MapFS) {
 			allHarnesses(c)
 			c.Spec.Defaults.Roles[0].Harness = "opencode"
+			o.Secrets = []config.SecretBinding{{Name: "openrouter-api-key", EnvName: "1BAD"}}
 		}},
 		{"seed", "TeamDir", func(c *config.TeamsConfig, o *compose.Options, s fstest.MapFS) {
 			allHarnesses(c)
@@ -486,6 +487,71 @@ func TestSecretDestinationConflicts(t *testing.T) {
 		[]byte("[first-auth]"),
 	)
 	result, err = compose.Compose(cfg, selectedTeam(cfg), opts)
+	if err == nil || result != nil || !strings.Contains(err.Error(), "conflicts with template") {
+		t.Fatalf("result=%v err=%v", result, err)
+	}
+}
+
+func TestSecretBindingsGeneratedAndRecorded(t *testing.T) {
+	cfg, opts := fixture(t)
+	allHarnesses(cfg)
+	cfg.Spec.Defaults.Roles[0].Harness = "opencode"
+	generated := config.SecretBinding{
+		Name: "openrouter-api-key", EnvName: "OPENROUTER_API_KEY",
+		SecretRef: config.SecretRef{Name: "openrouter-api-key", Realm: "default"},
+	}
+	edited := routerBinding()
+	edited.EnvName = "ROUTER_KEY"
+	stale := config.SecretBinding{
+		Name: "gh-token", EnvName: "GH_TOKEN", SecretRef: config.SecretRef{Name: "gh-token", Realm: "default"},
+	}
+	for _, tc := range []struct {
+		name             string
+		global, recorded []config.SecretBinding
+		want             config.SecretBinding
+	}{
+		{"generated", nil, nil, generated},
+		{"global", []config.SecretBinding{routerBinding()}, nil, routerBinding()},
+		{"recorded", []config.SecretBinding{routerBinding()}, []config.SecretBinding{stale, edited}, edited},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg.Spec.Secrets = tc.global
+			opts.Secrets = tc.recorded
+			result, err := compose.Compose(cfg, selectedTeam(cfg), opts)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// Only bindings the selected pairs use are recorded; stale ones drop.
+			if !reflect.DeepEqual(result.Entry.Secrets, []config.SecretBinding{tc.want}) {
+				t.Fatalf("entry secrets = %+v", result.Entry.Secrets)
+			}
+			pair := result.Pairs[0]
+			if pair.Blueprint.Spec.Cell.Containers[0].Secrets[0].EnvName != tc.want.EnvName ||
+				pair.Config.Spec.Secrets[tc.want.Name].SecretRef.Name != tc.want.SecretRef.Name ||
+				pair.Secrets[0].Reference != tc.want.SecretRef {
+				t.Fatal("binding not applied to resources")
+			}
+			// Recomposing from the recorded entry alone yields the same bindings.
+			cfg.Spec.Secrets = nil
+			opts.Secrets = result.Entry.Secrets
+			again, err := compose.Compose(cfg, selectedTeam(cfg), opts)
+			if err != nil || !reflect.DeepEqual(again.Entry.Secrets, result.Entry.Secrets) {
+				t.Fatalf("recompose: %v %+v", err, again)
+			}
+		})
+	}
+}
+
+func TestGeneratedSecretDestinationConflicts(t *testing.T) {
+	cfg, opts := fixture(t)
+	source := copiedSource(t)
+	opts.Sources["kuketeams"] = source
+	source["roles/operator/role.yaml"].Data = bytes.ReplaceAll(
+		source["roles/operator/role.yaml"].Data,
+		[]byte("  needs:"),
+		[]byte("  needs:\n    secrets: [prompt]"),
+	)
+	result, err := compose.Compose(cfg, selectedTeam(cfg), opts)
 	if err == nil || result != nil || !strings.Contains(err.Error(), "conflicts with template") {
 		t.Fatalf("result=%v err=%v", result, err)
 	}

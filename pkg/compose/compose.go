@@ -43,10 +43,9 @@ import (
 type Options struct {
 	Sources map[string]fs.FS
 	Scope   Scope
-	// HomeDir is needed only for an explicitly requested ssh mount; TeamDir is
-	// needed for harness seed paths (Claude). Neither is discovered from the host.
+	// HomeDir is needed only for an explicitly requested ssh mount; it is not
+	// discovered from the host.
 	HomeDir string
-	TeamDir string
 	// Secrets are the bindings recorded in the team's existing TeamEntry; they
 	// take precedence over global spec.secrets and generated defaults.
 	Secrets []config.SecretBinding
@@ -70,7 +69,6 @@ type Pair struct {
 	Blueprint *api.CellBlueprintDoc
 	Config    *api.CellConfigDoc
 	Secrets   []SecretRequirement
-	Seeds     []model.HarnessSeed
 }
 
 // SecretRequirement contains declarations only; Source is an optional creation
@@ -252,11 +250,6 @@ func composePair(
 	if bindErr := bind(&pair, cfg, selection, &role, sources, team, secrets); bindErr != nil {
 		return Pair{}, bindErr
 	}
-	pair.Seeds, err = resolveSeeds(definition, hsel.Name, opts.TeamDir)
-	if err != nil {
-		return Pair{}, err
-	}
-
 	return pair, nil
 }
 
@@ -382,19 +375,4 @@ func (r *Result) MarshalYAML() ([]byte, error) {
 		return nil, err
 	}
 	return out.Bytes(), nil
-}
-
-func resolveSeeds(harness *harness.Harness, harnessName, teamDir string) ([]model.HarnessSeed, error) {
-	var out []model.HarnessSeed
-	for _, seed := range harness.Spec.Seeds {
-		if !config.SafePath(teamDir) {
-			return nil, errors.New("TeamDir: explicit absolute team-state path required by harness seeds")
-		}
-		seed.Path = strings.NewReplacer("${TEAM_ROOT}", teamDir, "${HARNESS}", harnessName).Replace(seed.Path)
-		if !config.SafePath(seed.Path) || !strings.HasPrefix(seed.Path, teamDir+"/") {
-			return nil, errors.New("harness seed escapes TeamDir")
-		}
-		out = append(out, seed)
-	}
-	return out, nil
 }

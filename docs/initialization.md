@@ -100,14 +100,19 @@ Credentials and remote secret-error text are never printed or saved in TeamEntry
 or the blueprint/config request. Diagnostics identify the operation and whether
 the failure was a transport failure or daemon rejection.
 
-A missing secret without a creation source reports a command such as:
+A missing secret without a creation source does not fail init or add. The
+blueprints/configs are still applied and the team registered (kukeond resolves
+secret references only when a cell launches), and the command exits 0 after
+listing each missing runtime secret once:
 
-```sh
-kuke create secret provider-account --realm auth --space shared --stack operators --from-file /path/to/token
-kuketeams init
+```text
+Missing secrets (cells will not start until they exist):
+  provider-account  →  kuke create secret provider-account --realm auth --space shared --stack operators --from-file /path/to/token
 ```
 
-The actual command uses the binding's resolved name/scope. Replace the file path
+Create them before launching cells; no rerun is needed. `kuke run` still fails
+on a cell whose secret is absent. The actual command uses the binding's
+resolved name/scope. Replace the file path
 with your own credential file and use the same kuke `--host`/`--configuration`
 endpoint. Parent scopes must exist first. The pinned kuke CLI has no secret
 `--cell` flag; a cell-scoped reference instead requires a `Secret` manifest with

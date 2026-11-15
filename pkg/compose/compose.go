@@ -47,6 +47,9 @@ type Options struct {
 	// needed for harness seed paths (Claude). Neither is discovered from the host.
 	HomeDir string
 	TeamDir string
+	// Secrets are the bindings recorded in the team's existing TeamEntry; they
+	// take precedence over global spec.secrets and generated defaults.
+	Secrets []config.SecretBinding
 }
 
 const defaultScope = "default"
@@ -97,6 +100,10 @@ func Compose(cfg *config.TeamsConfig, team *config.Team, opts Options) (*Result,
 		return nil, err
 	}
 	result := &Result{Entry: entry}
+	secrets, err := newSecretBindings(opts.Secrets, cfg, scope.Realm)
+	if err != nil {
+		return nil, err
+	}
 	for _, role := range effective.Roles {
 		if !config.ValidName(role.Name) {
 			return nil, errors.New("role: invalid selection name")
@@ -105,7 +112,7 @@ func Compose(cfg *config.TeamsConfig, team *config.Team, opts Options) (*Result,
 			if !role.Selects(h) {
 				continue
 			}
-			pair, pairErr := composePair(cfg, team.Metadata.Name, role, h, effective.Sources, opts)
+			pair, pairErr := composePair(cfg, team.Metadata.Name, role, h, effective.Sources, opts, secrets)
 			if pairErr != nil {
 				return nil, fmt.Errorf("compose %s/%s: %w", role.Name, h.Name, pairErr)
 			}
@@ -135,6 +142,10 @@ func Compose(cfg *config.TeamsConfig, team *config.Team, opts Options) (*Result,
 			return nil, fmt.Errorf("spec.parameters: unsupported parameter %q", name)
 		}
 	}
+	if err = secrets.checkParameters(cfg.Spec.Parameters); err != nil {
+		return nil, err
+	}
+	result.Entry.Secrets = secrets.entry()
 	return result, nil
 }
 
@@ -161,6 +172,7 @@ func composePair(
 	hsel config.Harness,
 	sources []config.Source,
 	opts Options,
+	secrets *secretBindings,
 ) (Pair, error) {
 	if !config.ValidName(hsel.Name) {
 		return Pair{}, errors.New("invalid harness selection name")
@@ -237,7 +249,7 @@ func composePair(
 		},
 	}
 	pair := Pair{Role: selection.Name, Harness: hsel.Name, Image: image, Blueprint: bp, Config: cc}
-	if bindErr := bind(&pair, cfg, selection, &role, sources, team); bindErr != nil {
+	if bindErr := bind(&pair, cfg, selection, &role, sources, team, secrets); bindErr != nil {
 		return Pair{}, bindErr
 	}
 	pair.Seeds, err = resolveSeeds(definition, hsel.Name, opts.TeamDir)
